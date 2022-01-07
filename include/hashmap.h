@@ -30,6 +30,10 @@ size_t HashMap_size(const HashMap *h) {
     return h->size;
 }
 
+unsigned int HashMap_get(const HashMap *h, size_t i) {
+    return h->map[h->index[i]];
+}
+
 int HashMap_insert(HashMap *h, unsigned int key) {
     unsigned int hashIndex = hash(key) % HASH_MAP_SIZE;
     // Insert key in hash map

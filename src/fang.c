@@ -44,6 +44,14 @@ typedef struct {
     unsigned int *player_targets_left;
     Location_t *locations;
     Location_t *locations_sorted;
+    // Arrays containing shortest path data
+    int *dist_player, *dist_boeg;
+    int *par_player, *par_boeg;
+    // Graphs (adjacency lists)
+    Graph graph_player, graph_boeg;
+    // Auxiliary buffers needed for graph algorithms
+    bool *visited_buf;
+    int *distances_buf;
     unsigned int boeg_pos;
     unsigned int boeg_id;  // Keeps track which player is currently the boeg
     unsigned int nPositions;
@@ -68,7 +76,7 @@ int location_cmp(const void *a, const void *b) {
 
 unsigned int location_sim(const char *a, const char *b) {
     unsigned int sim = 0, i = 0;
-    while (a[i] != '\0' && b[i] != '\0') {
+    while (i < MAX_LOCATION_LEN && a[i] != '\0' && b[i] != '\0') {
         if (a[i] == b[i])
             ++sim;
         ++i;
@@ -116,6 +124,7 @@ int roll_dice() {
     return (rand() % DIE_SIZE) + 1;
 }
 
+// From StackOverflow
 void shuffle(unsigned int *array, size_t n) {
     if (n > 1) {
         size_t i;
@@ -205,9 +214,8 @@ int opponent_at_target(const GameState_t *gstate, unsigned int target,
     return 0;
 }
 
-void GameState_init(GameState_t *gstate, unsigned int nPositions,
-                                unsigned int nPlayers) {
-    // Initialize Game State data
+void GameState_init(GameState_t *gstate, unsigned int nPlayers) {
+    // -- Initialize Game State data --
     gstate->player_pos = (unsigned int *) malloc(nPlayers * sizeof(unsigned int));
     assert(gstate->player_pos != NULL);
     gstate->player_targets = (unsigned int *) 
@@ -217,19 +225,11 @@ void GameState_init(GameState_t *gstate, unsigned int nPositions,
             malloc(nPlayers * sizeof(unsigned int));
     assert(gstate->player_targets_left != NULL);
     
-    // Initialize number of positions & players
-    gstate->nPositions = nPositions;
+    // Initialize number of players
     gstate->nPlayers = nPlayers;
     // Initialize Boeg id
-    gstate->boeg_id = BOEG_ID_DEFAULT;
-    // Place players randomly & set initial number of targets
+    gstate->boeg_id = BOEG_ID_DEFAULT; 
     unsigned int i, j;
-    for (i = 0; i < nPlayers; ++i) {
-        // Place players ONLY on non-target positions to avoid
-        // possible collisions with placement of Boeg
-        gstate->player_pos[i] = (rand() % (nPositions - N_TARGETS)) + N_TARGETS;
-        gstate->player_targets_left[i] = N_TARGETS_PLAYER;
-    }
     // Initialize (static) targets
     for (i = 0; i < N_TARGETS; ++i) {
         gstate->targets[i] = i;
@@ -247,18 +247,52 @@ void GameState_init(GameState_t *gstate, unsigned int nPositions,
     }
     // Initialize boeg position
     gstate->boeg_pos = gstate->targets[iter];
+    
+    // Initialize graphs (adjacency lists)
+    FILE *fp_player = fopen("board/graph_player.txt", "r");
+    FILE *fp_boeg = fopen("board/graph_full.txt", "r");
+    if (fp_player == NULL || fp_boeg == NULL) {
+        free(gstate->player_pos);
+        free(gstate->player_targets);
+        free(gstate->player_targets_left);
+        fprintf(stderr, "Could not open board file(s)\n");
+        exit(EXIT_FAILURE);
+    }
+    // Init graphs
+    Graph_init_file(&gstate->graph_player, fp_player);
+    fclose(fp_player);
+    Graph_init_file(&gstate->graph_boeg, fp_boeg);
+    fclose(fp_boeg);
+    
+    // Make sure graphs share same number of vertices
+    assert(gstate->graph_player.nVert == gstate->graph_boeg.nVert);
+    // Number of total vertices
+    const unsigned int nVert = gstate->graph_player.nVert;
+    // Set number of positions
+    gstate->nPositions = nVert;
+    
+    // Place players randomly & set initial number of targets
+    for (i = 0; i < nPlayers; ++i) {
+        // Place players ONLY on non-target positions to avoid
+        // possible collisions with placement of Boeg
+        gstate->player_pos[i] = (rand() % (nVert - N_TARGETS)) + N_TARGETS;
+        gstate->player_targets_left[i] = N_TARGETS_PLAYER;
+    }
     // Read locations:
-    gstate->locations = (Location_t *) malloc(nPositions * sizeof(Location_t));
+    gstate->locations = (Location_t *) malloc(nVert * sizeof(Location_t));
     assert(gstate->locations != NULL);
-    gstate->locations_sorted = (Location_t *) malloc(nPositions * sizeof(Location_t));
+    gstate->locations_sorted = (Location_t *) malloc(nVert * sizeof(Location_t));
     assert(gstate->locations_sorted != NULL);
     
     FILE *fp_loc = fopen("board/locations.txt", "r");
     if (fp_loc == NULL) {
         free(gstate->player_pos);
         free(gstate->player_targets);
+        free(gstate->player_targets_left);
         free(gstate->locations);
         free(gstate->locations_sorted);
+        Graph_free(&gstate->graph_player);
+        Graph_free(&gstate->graph_boeg);
         fprintf(stderr, "Could not open locations file\n");
         exit(EXIT_FAILURE);
     }
@@ -267,19 +301,27 @@ void GameState_init(GameState_t *gstate, unsigned int nPositions,
     // Close locations file
     fclose(fp_loc);
     // Sort locations array in ascending order
-    qsort((void *)&gstate->locations_sorted[0], nPositions,
-                            sizeof(Location_t), &location_cmp);
-    // DEBUG
-    /*
-    unsigned int a = location_binsearch(gstate->locations_sorted, "Uitikon", nPositions);
-    unsigned int b = location_binsearch(gstate->locations_sorted, "Selnau", nPositions);
-    unsigned int c = location_binsearch(gstate->locations_sorted, "Altstetten", nPositions);
-    printf("%s: %u\n%s: %u\n", gstate->locations[a].name, a, gstate->locations[b].name, b);
-    printf("115: %s\n", gstate->locations[115].name);
-    printf("%s: %u\n", gstate->locations[c].name, c);
+    qsort((void *)&gstate->locations_sorted[0], nVert,
+                                    sizeof(Location_t), &location_cmp);
+                            
+    // Initialize distances and parents using BFS APSP
+    gstate->dist_player = (int *) malloc(nVert * nVert * sizeof(int));
+    assert(gstate->dist_player != NULL);
+    gstate->par_player = (int *) malloc(nVert * nVert * sizeof(int));
+    assert(gstate->par_player != NULL);
     
-    exit(EXIT_SUCCESS);
-    */
+    gstate->dist_boeg = (int *) malloc(nVert * nVert * sizeof(int));
+    assert(gstate->dist_boeg != NULL);
+    gstate->par_boeg = (int *) malloc(nVert * nVert * sizeof(int));
+    assert(gstate->par_boeg != NULL);
+    
+    // Compute all pairs shortest paths (APSP) for both boards
+    Graph_BFS_APSP(&gstate->graph_player, gstate->dist_player, gstate->par_player);
+    Graph_BFS_APSP(&gstate->graph_boeg, gstate->dist_boeg, gstate->par_boeg);
+    
+    // Initialize auxiliary buffers
+    gstate->visited_buf = NULL;
+    gstate->distances_buf = NULL;
 }
 
 // Reset game state and re-randomize for next round
@@ -349,14 +391,22 @@ void GameState_free(GameState_t *gstate) {
     free(gstate->player_targets_left);
     free(gstate->locations);
     free(gstate->locations_sorted);
+    free(gstate->dist_player);
+    free(gstate->dist_boeg);
+    free(gstate->par_player);
+    free(gstate->par_boeg);
+    // Clean up graphs
+    Graph_free(&gstate->graph_player);
+    Graph_free(&gstate->graph_boeg);
+    // Clean up auxiliary buffers
+    free(gstate->visited_buf);
+    free(gstate->distances_buf);
 }
 
 // GREEDY STRATEGY:
 // Always move to closest target using shortest path
 enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
-                                 const int *dist_player, const int *dist_boeg,
-                                 const int *par_player, const int *par_boeg,
-                                 int verbose) {
+                                    int verbose) {
     unsigned int i, j, offset_targets;
     unsigned int target, min_target = N_TARGETS;
     int dist, min_dist = RAND_MAX;
@@ -381,7 +431,7 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
             }
             
             // Distance from current pos to target
-            dist = dist_boeg[offset_board + target];
+            dist = gstate->dist_boeg[offset_board + target];
             if (dice_roll >= dist) {  // Found reachable target
                 // Check if target is already occupied -> skip
                 if (opponent_at_target(gstate, target, player_id)) {
@@ -389,7 +439,7 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
                 }
                 // DEBUG
                 if (verbose) {
-                    print_path(par_boeg, gstate->locations, 
+                    print_path(gstate->par_boeg, gstate->locations, 
                             gstate->boeg_pos, target, gstate->nPositions,
                             dist, DEFAULT_COLOR);
                 }
@@ -411,7 +461,7 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
         }
         if (min_target != N_TARGETS) {
             // Try to move as far as possible to closest (min) target
-            closest_pos = follow_path(par_boeg, gstate->boeg_pos, min_target,
+            closest_pos = follow_path(gstate->par_boeg, gstate->boeg_pos, min_target,
                                         gstate->nPositions, dice_roll);
         }
         // EDGE CASE: Check if already occupied by opponent(s)
@@ -422,39 +472,50 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
                 printf("Occupied...\n");
                 
             closest_pos = gstate->nPositions;
-            // TODO: Consider all possible locations that are in reach
-            unsigned int offset = 0;
+            // Consider all possible locations that are in reach
+            unsigned int offset;
             int sum_dists;
             int min_sum = RAND_MAX;
-            for (j = 0; j < gstate->nPositions; ++j) {
-                if (dist_boeg[offset_board + j] == dice_roll) {
-                    if (!opponent_at_target(gstate, j, player_id)) {
-                        // Iterate over all targets and sum min distances
-                        sum_dists = 0;
-                        for (i = 0; i < N_TARGETS_PLAYER; ++i) {
-                            target = gstate->player_targets[offset_targets + i];
-                            // Make sure target is valid
-                            if (target == N_TARGETS) {
-                                continue;
-                            }
-                            dist = dist_boeg[offset + target];
-                            sum_dists += dist;
+            // Obtain HashMap of all reachable positions from current pos
+            // in exactly 'dice_roll' steps
+            HashMap reachablePos;
+            reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
+                                gstate->boeg_pos, dice_roll,
+                                 &gstate->visited_buf, 
+                                 &gstate->distances_buf);
+            // Iterate over all reachable positions
+            size_t current;
+            const size_t nReachable = HashMap_size(&reachablePos);
+            for (current = 0; current < nReachable; ++current) {
+                j = HashMap_get(&reachablePos, current);
+                // Make sure no opponent is already at current pos
+                if (!opponent_at_target(gstate, j, player_id)) {
+                    // Compute offset
+                    offset = j * gstate->nPositions;
+                    // Iterate over all targets and sum min distances
+                    sum_dists = 0;
+                    for (i = 0; i < N_TARGETS_PLAYER; ++i) {
+                        target = gstate->player_targets[offset_targets + i];
+                        // Make sure target is valid
+                        if (target == N_TARGETS) {
+                            continue;
                         }
-                        // Update closest pos based on sum of min distances
-                        if (sum_dists < min_sum) {
-                            min_sum = sum_dists;
-                            closest_pos = j;
-                        }
+                        dist = gstate->dist_boeg[offset + target];
+                        sum_dists += dist;
+                    }
+                    // Update closest pos based on sum of min distances
+                    if (sum_dists < min_sum) {
+                        min_sum = sum_dists;
+                        closest_pos = j;
                     }
                 }
-                offset += gstate->nPositions;
             }
         }
         // Check if succeeded in finding alternative position
         if (closest_pos != gstate->nPositions) {
             // Update Boeg position and print path taken
             if (verbose) {
-                print_path(par_boeg, gstate->locations, 
+                print_path(gstate->par_boeg, gstate->locations, 
                             gstate->boeg_pos, closest_pos, gstate->nPositions,
                             dice_roll, DEFAULT_COLOR);
             }
@@ -470,11 +531,11 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
         offset_board = gstate->player_pos[player_id] * gstate->nPositions;
         // Move to closest position of Boeg
         // Distance between player and Boeg
-        dist = dist_player[offset_board + gstate->boeg_pos];
+        dist = gstate->dist_player[offset_board + gstate->boeg_pos];
         if (dice_roll >= dist) {
             // DEBUG
             if (verbose) {
-                print_path(par_player, gstate->locations, 
+                print_path(gstate->par_player, gstate->locations, 
                             current_pos, gstate->boeg_pos, gstate->nPositions,
                             dist, PLAYER_COLORS[player_id]);
             }
@@ -483,17 +544,15 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
             // Update Boeg id
             gstate->boeg_id = player_id;
             // Make next move as Boeg
-            return GameState_make_move(gstate, player_id, dist_player, 
-                                        dist_boeg, par_player, par_boeg,
-                                        verbose);
+            return GameState_make_move(gstate, player_id, verbose);
         }
         // Move as close as possible to boeg
         if (verbose) {
-            gstate->player_pos[player_id] = print_path(par_player, gstate->locations, 
+            gstate->player_pos[player_id] = print_path(gstate->par_player, gstate->locations, 
                             current_pos, gstate->boeg_pos, gstate->nPositions,
                             dice_roll, PLAYER_COLORS[player_id]);
         } else {
-            gstate->player_pos[player_id] = follow_path(par_player, 
+            gstate->player_pos[player_id] = follow_path(gstate->par_player, 
                     current_pos, gstate->boeg_pos, gstate->nPositions, dice_roll);
         }
         return CONTINUE;
@@ -501,9 +560,7 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
 }
 
 // Run game for at most MAX_TURNS
-GameResult_t GameState_run(GameState_t *gstate, const int *dist_player,
-                        const int *dist_boeg, const int *par_player,
-                            const int *par_boeg, int verbose) {
+GameResult_t GameState_run(GameState_t *gstate, int verbose) {
     int winner = -1;
     unsigned int i;
     unsigned int nTurns = 0;
@@ -517,8 +574,7 @@ GameResult_t GameState_run(GameState_t *gstate, const int *dist_player,
         
         for (i = 0; i < gstate->nPlayers; ++i) {
             // Player makes move
-            status = GameState_make_move(gstate, i, dist_player, 
-                                    dist_boeg, par_player, par_boeg, verbose);
+            status = GameState_make_move(gstate, i, verbose);
             if (verbose) {
                 printf("\nBoard info:\n");
                 // Print current state of game
@@ -542,9 +598,7 @@ GameResult_t GameState_run(GameState_t *gstate, const int *dist_player,
     return (GameResult_t) {.winner=winner, .nTurns=nTurns};
 }
 
-void GameState_statistics(GameState_t *gstate, const int *dist_player,
-                            const int *dist_boeg, const int *par_player,
-                                const int *par_boeg, unsigned int nGames) {
+void GameState_statistics(GameState_t *gstate, unsigned int nGames) {
     unsigned int *wins = (unsigned int *) calloc(gstate->nPlayers, sizeof(unsigned int));
     assert(wins != NULL);
     
@@ -555,8 +609,7 @@ void GameState_statistics(GameState_t *gstate, const int *dist_player,
     GameResult_t result;
     unsigned int i;
     for (i = 0; i < nGames; ++i) {
-        result = GameState_run(gstate, dist_player, dist_boeg,
-                                    par_player, par_boeg, 0);
+        result = GameState_run(gstate, 0);
         // Update wins
         if (result.winner != -1) {
             ++wins[result.winner];
@@ -587,7 +640,7 @@ void GameState_statistics(GameState_t *gstate, const int *dist_player,
     free(wins);
 }
 
-int main(int argc, char *argv[]) {
+int main0(int argc, char *argv[]) {
     
     if (argc != 3) {
         fprintf(stderr, "Usage: ./fang <start> <n-steps>\n");
@@ -739,7 +792,7 @@ int main1(int argc, char *argv[]) {
     return 0;    
 }
 
-int main2(int argc, char *argv[]) {
+int main(int argc, char *argv[]) {
     
     if (argc != 2) {
         fprintf(stderr, "Usage: ./fang <num_players %d:%d>\n",
@@ -759,55 +812,17 @@ int main2(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     printf("#Players: %u\n", nPlayers);
-    // Load graphs
-    Graph graph_player, graph_boeg;
     
-    FILE *fp_player = fopen("board/graph_player.txt", "r");
-    FILE *fp_boeg = fopen("board/graph_full.txt", "r");
-    if (fp_player == NULL || fp_boeg == NULL) {
-        fprintf(stderr, "Could not open board file(s)\n");
-        exit(EXIT_FAILURE);
-    }
-    // Init graphs
-    Graph_init_file(&graph_player, fp_player);
-    fclose(fp_player);
-    Graph_init_file(&graph_boeg, fp_boeg);
-    fclose(fp_boeg);
-    
-    const unsigned int nVert = graph_player.nVert;
-    
-    // Initialize distances and parents using BFS APSP
-    int *distances_player = (int *) malloc(nVert * nVert * sizeof(int));
-    assert(distances_player != NULL);
-    int *parents_player = (int *) malloc(nVert * nVert * sizeof(int));
-    assert(parents_player != NULL);
-    
-    int *distances_boeg = (int *) malloc(nVert * nVert * sizeof(int));
-    assert(distances_boeg != NULL);
-    int *parents_boeg = (int *) malloc(nVert * nVert * sizeof(int));
-    assert(parents_boeg != NULL);
-    
-    // Compute all pairs shortest paths (APSP) for both boards
-    Graph_BFS_APSP(&graph_player, distances_player, parents_player);
-    Graph_BFS_APSP(&graph_boeg, distances_boeg, parents_boeg);
-    // Cleanup graphs
-    Graph_free(&graph_player);
-    Graph_free(&graph_boeg);
-    
+    // Initialize game state
     GameState_t gstate;
-    GameState_init(&gstate, nVert, nPlayers);
+    GameState_init(&gstate, nPlayers);
     
     // Run game n times
     const unsigned int nGames = 1024;
-    GameState_statistics(&gstate, distances_player, distances_boeg, 
-                                    parents_player, parents_boeg, nGames);
+    GameState_statistics(&gstate, nGames);
     
+    // Clean up game state
     GameState_free(&gstate);
-    
-    free(distances_player);
-    free(parents_player);
-    free(distances_boeg);
-    free(parents_boeg);
     
     return 0;
 }
