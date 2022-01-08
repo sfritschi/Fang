@@ -1,3 +1,14 @@
+/*
+ * Encapsulates all the necessary information on the state of the game
+ * and provides methods to simulate the board game for a variable number
+ * of players, as well as statistical analysis of consecutive
+ * runs of the game.
+ * 
+ * Depends on:
+ * - Graph data structure (adjacency list) + algorithms
+ * - Location data structure (name + vertex number)
+ */
+
 #pragma once
 #ifndef GAME_STATE_H
 #define GAME_STATE_H

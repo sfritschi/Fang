@@ -1,3 +1,10 @@
+/*
+ * Encapsulates name of location as well as its corresponding vertex
+ * number. Provides methods for quickly finding a location given its name,
+ * as well reading them from file.
+ * 
+ */
+
 #pragma once
 #ifndef LOCATION_H
 #define LOCATION_H

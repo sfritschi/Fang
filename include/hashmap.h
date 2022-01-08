@@ -1,3 +1,13 @@
+/*
+ * Simple hashmap implementation using linear probing.
+ * 
+ * - Key type is unsigned int
+ * - Duplicate keys are ignored during insertion
+ * - Allows iterating over all elements currently contained in the
+ *   hashmap
+ * 
+ */
+
 #pragma once
 #ifndef HASHMAP_H
 #define HASHMAP_H
