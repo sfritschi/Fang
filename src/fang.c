@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <math.h>  // INFINITY
 
 #include "linked_list.h"
 #include "graph.h"
@@ -405,7 +406,7 @@ void GameState_free(GameState_t *gstate) {
 
 // GREEDY STRATEGY:
 // Always move to closest target using shortest path
-enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
+enum STATUS GameState_move_greedy(GameState_t *gstate, unsigned int player_id,
                                     int verbose) {
     unsigned int i, j, offset_targets;
     unsigned int target, min_target = N_TARGETS;
@@ -519,8 +520,8 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
                             gstate->boeg_pos, closest_pos, gstate->nPositions,
                             dice_roll, DEFAULT_COLOR);
             }
-            // DEBUG
             gstate->boeg_pos = closest_pos;
+            
         } else {
             // Otherwise stay at current position
             if (verbose)
@@ -544,7 +545,175 @@ enum STATUS GameState_make_move(GameState_t *gstate, unsigned int player_id,
             // Update Boeg id
             gstate->boeg_id = player_id;
             // Make next move as Boeg
-            return GameState_make_move(gstate, player_id, verbose);
+            return GameState_move_greedy(gstate, player_id, verbose);
+        }
+        // Move as close as possible to boeg
+        if (verbose) {
+            gstate->player_pos[player_id] = print_path(gstate->par_player, gstate->locations, 
+                            current_pos, gstate->boeg_pos, gstate->nPositions,
+                            dice_roll, PLAYER_COLORS[player_id]);
+        } else {
+            gstate->player_pos[player_id] = follow_path(gstate->par_player, 
+                    current_pos, gstate->boeg_pos, gstate->nPositions, dice_roll);
+        }
+        return CONTINUE;
+    }
+}
+
+// Avoid opponents when playing as Boeg, while still minimizing
+// distance to targets left
+enum STATUS GameState_move_avoidant(GameState_t *gstate, unsigned int player_id,
+                                    double avoidance, int verbose) {
+    unsigned int i, j, offset_targets;
+    unsigned int target;
+    int dist;
+    unsigned int optimal_pos;
+    unsigned int current_pos = gstate->player_pos[player_id];
+    // Offset in distances/parents array
+    unsigned int offset_board;
+    // Roll dice
+    int dice_roll = roll_dice();
+    if (verbose)
+        printf("%u> Dice Roll: %d\n", player_id, dice_roll);
+    // Check if playing as Boeg
+    if (player_id == gstate->boeg_id) {
+        offset_targets = player_id * N_TARGETS_PLAYER;
+        offset_board = gstate->boeg_pos * gstate->nPositions;
+        // Check all remaining targets if reachable
+        for (i = 0; i < N_TARGETS_PLAYER; ++i) {
+            target = gstate->player_targets[offset_targets + i];
+            // If target invalid -> skip
+            if (target == N_TARGETS) {
+                continue;  // move on to next target
+            }
+            
+            // Distance from current pos to target
+            dist = gstate->dist_boeg[offset_board + target];
+            if (dice_roll >= dist) {  // Found reachable target
+                // Check if target is already occupied -> skip
+                if (opponent_at_target(gstate, target, player_id)) {
+                    continue;
+                }
+                // DEBUG
+                if (verbose) {
+                    print_path(gstate->par_boeg, gstate->locations, 
+                            gstate->boeg_pos, target, gstate->nPositions,
+                            dist, DEFAULT_COLOR);
+                }
+                // Move Boeg to this target
+                gstate->boeg_pos = target;
+                // Update targets (invalidate & decrement)
+                gstate->player_targets[offset_targets + i] = N_TARGETS;
+                // Check if GAMEOVER
+                if (--gstate->player_targets_left[player_id] == 0)
+                    return GAMEOVER;
+                    
+                return CONTINUE;
+            }
+        }
+        // Try to move to different location 'dice_roll' away
+        // that is as close as possible to targets, while maintaining
+        // distance to opponents -> minimize objective
+        optimal_pos = gstate->nPositions;
+        // Consider all possible locations that are in reach
+        unsigned int offset;
+        double objective;
+        double min_objective = INFINITY;
+        // Obtain HashMap of all reachable positions from current pos
+        // in exactly 'dice_roll' steps
+        HashMap reachablePos;
+        reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
+                            gstate->boeg_pos, dice_roll,
+                                &gstate->visited_buf, 
+                                &gstate->distances_buf);
+        // Iterate over all reachable positions and evaluate objective
+        size_t current;
+        const size_t nReachable = HashMap_size(&reachablePos);
+        for (current = 0; current < nReachable; ++current) {
+            j = HashMap_get(&reachablePos, current);
+            // Make sure no opponent is already at current pos
+            if (!opponent_at_target(gstate, j, player_id)) {
+                // Compute offset
+                offset = j * gstate->nPositions;
+                // Compute objective for candidate position
+                objective = 0.0;
+                // Iterate over all targets left and sum min distances
+                for (i = 0; i < N_TARGETS_PLAYER; ++i) {
+                    target = gstate->player_targets[offset_targets + i];
+                    // Make sure target is valid
+                    if (target == N_TARGETS) {
+                        continue;
+                    }
+                    // Compute shortest distance to target
+                    dist = gstate->dist_boeg[offset + target];
+                    // Update objective
+                    objective += (double)dist;
+                }
+                // Iterate over all opponent positions and update objective
+                for (i = 0; i < gstate->nPlayers; ++i) {
+                    // Ignore self
+                    if (i == player_id) {
+                        continue;
+                    }
+                    unsigned int opp_pos = gstate->player_pos[i];
+                    // Compute shortest distance from opponent to
+                    // candidate position
+                    int opp_dist = gstate->dist_player[opp_pos * gstate->nPositions + j];
+                    // DEBUG
+                    assert(opp_dist != 0);
+                    double denom = (double)opp_dist;
+                    // Check if opponent cannot reach this position
+                    // within one dice roll
+                    if (opp_dist > DIE_SIZE) {
+                        // Lessen penalty in objective in this case
+                        // -> larger denominator
+                        denom = 2. * denom;
+                    }
+                    // Update objective (parameterized)
+                    objective += avoidance / denom;
+                }
+                // Update optimal pos based on objective value
+                if (objective < min_objective) {
+                    min_objective = objective;
+                    optimal_pos = j;
+                }
+            }
+        }
+        // Check if succeeded in finding optimal position
+        if (optimal_pos != gstate->nPositions) {
+            // Update Boeg position and print path taken
+            if (verbose) {
+                print_path(gstate->par_boeg, gstate->locations, 
+                            gstate->boeg_pos, optimal_pos, gstate->nPositions,
+                            dice_roll, DEFAULT_COLOR);
+            }
+            gstate->boeg_pos = optimal_pos;
+            
+        } else {
+            // Otherwise stay at current position
+            if (verbose)
+                printf("Skipping turn...\n");
+        }
+        return CONTINUE;
+        
+    } else {
+        offset_board = gstate->player_pos[player_id] * gstate->nPositions;
+        // Move to closest position of Boeg
+        // Distance between player and Boeg
+        dist = gstate->dist_player[offset_board + gstate->boeg_pos];
+        if (dice_roll >= dist) {
+            // DEBUG
+            if (verbose) {
+                print_path(gstate->par_player, gstate->locations, 
+                            current_pos, gstate->boeg_pos, gstate->nPositions,
+                            dist, PLAYER_COLORS[player_id]);
+            }
+            // Move player to Boeg
+            gstate->player_pos[player_id] = gstate->boeg_pos;
+            // Update Boeg id
+            gstate->boeg_id = player_id;
+            // Make next move as Boeg
+            return GameState_move_avoidant(gstate, player_id, avoidance, verbose);
         }
         // Move as close as possible to boeg
         if (verbose) {
@@ -565,8 +734,13 @@ GameResult_t GameState_run(GameState_t *gstate, int verbose) {
     unsigned int i;
     unsigned int nTurns = 0;
     enum STATUS status = CONTINUE;
-    if (verbose)
+    if (verbose) {
         printf("--Beginning Game--\n\n");
+        GameState_info(gstate);
+    }
+    // Special game parameters
+    const unsigned int avoidant_player = 0;
+    const double avoidance = 40.0;
     
     while (status != GAMEOVER && nTurns < MAX_TURNS) {
         if (verbose)
@@ -574,7 +748,12 @@ GameResult_t GameState_run(GameState_t *gstate, int verbose) {
         
         for (i = 0; i < gstate->nPlayers; ++i) {
             // Player makes move
-            status = GameState_make_move(gstate, i, verbose);
+            if (i == avoidant_player) {
+                status = GameState_move_avoidant(gstate, i, avoidance, verbose);
+            } else {
+                status = GameState_move_greedy(gstate, i, verbose);
+            }
+            
             if (verbose) {
                 printf("\nBoard info:\n");
                 // Print current state of game
@@ -590,7 +769,6 @@ GameResult_t GameState_run(GameState_t *gstate, int verbose) {
         
         ++nTurns;
     }
-    //printf("Number of completed turns: %u\n", nTurns);
     // Check if maximum turns reached
     if (nTurns == MAX_TURNS) {
         fprintf(stderr, "\nReached maximum turns!\n");
@@ -628,10 +806,11 @@ void GameState_statistics(GameState_t *gstate, unsigned int nGames) {
     }
     avg_turns /= (double)nGames;
     
+    printf("Total games played: %u\n", nGames);
     printf("\nStatistics:\n");
     for (i = 0; i < gstate->nPlayers; ++i) {
-        printf("Player: %u\tWins: %u (%.2f%%)\n", i, wins[i], 
-                                    (double)wins[i] / nGames * 100.);
+        printf("%sPlayer: %u\tWins: %u (%.2f%%)%s\n", PLAYER_COLORS[i], 
+                    i, wins[i], (double)wins[i] / nGames * 100., DEFAULT_COLOR);
     }
     printf("Max. turns: %u\n", max_turns);
     printf("Min. turns: %u\n", min_turns);
@@ -820,6 +999,8 @@ int main(int argc, char *argv[]) {
     // Run game n times
     const unsigned int nGames = 1024;
     GameState_statistics(&gstate, nGames);
+    
+    //GameState_run(&gstate, 1);
     
     // Clean up game state
     GameState_free(&gstate);
