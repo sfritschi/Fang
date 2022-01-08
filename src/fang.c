@@ -204,15 +204,15 @@ void read_locations(FILE *fp, Location_t *locations, Location_t *locations_sorte
     }
 }
 
-int opponent_at_target(const GameState_t *gstate, unsigned int target, 
+bool opponent_at_target(const GameState_t *gstate, unsigned int target, 
                         unsigned int player_id) {
     unsigned int j;
     for (j = 0; j < gstate->nPlayers; ++j) {
         if (j != player_id && gstate->player_pos[j] == target) {
-            return 1;
+            return true;
         }
     }
-    return 0;
+    return false;
 }
 
 void GameState_init(GameState_t *gstate, unsigned int nPlayers) {
