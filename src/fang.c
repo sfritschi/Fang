@@ -1,3 +1,8 @@
+/*
+ * Main driver program for board game 'Fang de Boeg'.
+ *
+ */
+
 #include <stdio.h>
 #include <stdlib.h>
 
