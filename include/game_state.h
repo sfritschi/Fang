@@ -15,6 +15,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <stdbool.h>
 #include <assert.h>
 #include <math.h>  // INFINITY
@@ -53,6 +54,7 @@ typedef struct {
     unsigned int *player_pos;
     unsigned int *player_targets;
     unsigned int *player_targets_left;
+    unsigned int *player_order;
     Location_t *locations;
     Location_t *locations_sorted;
     // Arrays containing shortest path data
@@ -179,12 +181,21 @@ void GameState_init(GameState_t *gstate, unsigned int nPlayers) {
     gstate->player_targets_left = (unsigned int *)
             malloc(nPlayers * sizeof(unsigned int));
     assert(gstate->player_targets_left != NULL);
+    gstate->player_order = (unsigned int *) malloc(nPlayers * sizeof(unsigned int));
+    assert(gstate->player_order != NULL);
     
     // Initialize number of players
     gstate->nPlayers = nPlayers;
     // Initialize Boeg id
     gstate->boeg_id = BOEG_ID_DEFAULT; 
     unsigned int i, j;
+    // Initialize order in which players take turns
+    for (i = 0; i < nPlayers; ++i) {
+        gstate->player_order[i] = i;
+    }
+    // Randomly shuffle player order
+    shuffle(gstate->player_order, nPlayers);
+    
     // Initialize (static) targets
     for (i = 0; i < N_TARGETS; ++i) {
         gstate->targets[i] = i;
@@ -288,6 +299,8 @@ void GameState_reset(GameState_t *gstate) {
         gstate->player_pos[i] = (rand() % (gstate->nPositions - N_TARGETS)) + N_TARGETS;
         gstate->player_targets_left[i] = N_TARGETS_PLAYER;
     }
+    // Re-shuffle player order
+    shuffle(gstate->player_order, gstate->nPlayers);
     // Reset (static) targets
     for (i = 0; i < N_TARGETS; ++i) {
         gstate->targets[i] = i;
@@ -315,6 +328,7 @@ void GameState_info(const GameState_t *gstate) {
     
     unsigned int pos;
     unsigned int i, j;
+    
     printf("\nPlayer pos:\n");
     for (i = 0; i < gstate->nPlayers; ++i) {
         pos = gstate->player_pos[i];
@@ -346,6 +360,7 @@ void GameState_free(GameState_t *gstate) {
     free(gstate->player_pos);
     free(gstate->player_targets);
     free(gstate->player_targets_left);
+    free(gstate->player_order);
     free(gstate->locations);
     free(gstate->locations_sorted);
     free(gstate->dist_player);
@@ -374,7 +389,8 @@ enum STATUS GameState_move_greedy(GameState_t *gstate, unsigned int player_id,
     // Roll dice
     int dice_roll = roll_dice();
     if (verbose)
-        printf("%u> Dice Roll: %d\n", player_id, dice_roll);
+        printf("%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
+            dice_roll, DEFAULT_COLOR);
     // Check if playing as Boeg
     if (player_id == gstate->boeg_id) {
         offset_targets = player_id * N_TARGETS_PLAYER;
@@ -472,6 +488,8 @@ enum STATUS GameState_move_greedy(GameState_t *gstate, unsigned int player_id,
         if (closest_pos != gstate->nPositions) {
             // Update Boeg position and print path taken
             if (verbose) {
+                // ISSUE: Prints shortest path from boeg_pos to optimal
+                //        pos instead of actual path taken
                 print_path(gstate->par_boeg, gstate->locations, 
                             gstate->boeg_pos, closest_pos, gstate->nPositions,
                             dice_roll, DEFAULT_COLOR);
@@ -530,7 +548,8 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate, unsigned int player_id,
     // Roll dice
     int dice_roll = roll_dice();
     if (verbose)
-        printf("%u> Dice Roll: %d\n", player_id, dice_roll);
+        printf("%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
+            dice_roll, DEFAULT_COLOR);
     // Check if playing as Boeg
     if (player_id == gstate->boeg_id) {
         offset_targets = player_id * N_TARGETS_PLAYER;
@@ -639,6 +658,8 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate, unsigned int player_id,
         if (optimal_pos != gstate->nPositions) {
             // Update Boeg position and print path taken
             if (verbose) {
+                // ISSUE: Prints shortest path from boeg_pos to optimal
+                //        pos instead of actual path taken
                 print_path(gstate->par_boeg, gstate->locations, 
                             gstate->boeg_pos, optimal_pos, gstate->nPositions,
                             dice_roll, DEFAULT_COLOR);
@@ -683,31 +704,188 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate, unsigned int player_id,
         return CONTINUE;
     }
 }
+                            
+enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) {
+    
+    unsigned int end_pos;
+    int dist;
+    char end_loc[MAX_LOCATION_LEN];
+    // Roll dice
+    int dice_roll = roll_dice();
+    printf("%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
+                dice_roll, DEFAULT_COLOR);
+    
+    // Need to consider all reachable positions
+    HashMap reachablePos;
+    size_t nReachable, current;
+    unsigned int i, pos;
+    unsigned int target, offset_board, offset_targets;
+    
+    if (player_id == gstate->boeg_id) {  // playing as boeg
+        // Verify that there are any valid moves
+        bool no_valid_moves = true;
+        reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
+                            gstate->boeg_pos, dice_roll,
+                            &gstate->visited_buf, 
+                            &gstate->distances_buf);
+        // Compute number of reachable Positions
+        nReachable = HashMap_size(&reachablePos);
+        for (current = 0; current < nReachable; ++current) {
+            pos = HashMap_get(&reachablePos, current);
+            // Check if opponent at pos
+            if (!opponent_at_target(gstate, pos, player_id)) {
+                // There is at least one valid move
+                no_valid_moves = false;
+                break;
+            } 
+        }
+        
+        // If there are no valid moves, skip turn
+        if (no_valid_moves) {
+            // TODO: Special case where a valid, unoccupied target location
+            //       is reachable within less steps than dice_roll
+            printf("No valid moves!\n");
+            printf("Skipping turn...\n");
+            return CONTINUE;
+        }
+        // Repeat until user enters valid location
+        offset_board = gstate->boeg_pos * gstate->nPositions;
+        offset_targets = player_id * N_TARGETS_PLAYER;
+        do {
+            printf("Enter valid target location: ");
+            // Read target location from command line
+            fgets(end_loc, MAX_LOCATION_LEN, stdin);
+            // Remove newline
+            end_loc[strcspn(end_loc, "\n")] = 0;
+            // Find associated index of target location using binary search
+            end_pos = location_binsearch(gstate->locations_sorted, end_loc, 
+                                                gstate->nPositions);
+            // Make sure no opponent at chosen end position
+            if (opponent_at_target(gstate, end_pos, player_id)) {
+                printf("\nAlready occupied by opponent!\n"); 
+                continue;
+            }
+            printf("\nTarget location: '%s'\n", gstate->locations[end_pos].name);
+            // See if end_pos corresponds to target location
+            for (i = 0; i < N_TARGETS_PLAYER; ++i) {
+                target = gstate->player_targets[offset_targets + i];
+                // Check if target is already visited
+                if (target == N_TARGETS) {
+                    continue;
+                }
+                // Distance from boeg position to target
+                dist = gstate->dist_boeg[offset_board + target];
+                if (end_pos == target && dice_roll >= dist) {
+                    // Print path taken
+                    print_path(gstate->par_boeg, gstate->locations, 
+                                gstate->boeg_pos, target, gstate->nPositions,
+                                dist, DEFAULT_COLOR);
+                    // Move Boeg to this target
+                    gstate->boeg_pos = target;
+                    // Update targets (invalidate & decrement)
+                    gstate->player_targets[offset_targets + i] = N_TARGETS;
+                    // Check if GAMEOVER
+                    if (--gstate->player_targets_left[player_id] == 0)
+                        return GAMEOVER;
+                        
+                    return CONTINUE;
+                }
+            }
+            
+        } while(!HashMap_find(&reachablePos, end_pos));
+        
+        // Print path taken
+        print_path(gstate->par_boeg, gstate->locations, 
+                        gstate->boeg_pos, end_pos, gstate->nPositions,
+                        dice_roll, DEFAULT_COLOR);
+        // Otherwise, move boeg to requested position
+        gstate->boeg_pos = end_pos;
+        
+        return CONTINUE;
+        
+    } else {
+        reachablePos = Graph_reachable_pos(&gstate->graph_player,
+                            gstate->player_pos[player_id], dice_roll,
+                            &gstate->visited_buf, 
+                            &gstate->distances_buf);
+        
+        // Repeat until user enters valid location
+        offset_board = gstate->player_pos[player_id] * gstate->nPositions;
+        // Distance from current position of player to boeg
+        dist = gstate->dist_player[offset_board + gstate->boeg_pos];
+        do {
+            printf("Enter target location: ");
+            // Read chosen end location from command line
+            fgets(end_loc, MAX_LOCATION_LEN, stdin);
+            // Remove newline
+            end_loc[strcspn(end_loc, "\n")] = 0;
+            // Find associated index of end location using binary search
+            end_pos = location_binsearch(gstate->locations_sorted, end_loc, 
+                                                gstate->nPositions);
+            printf("\nTarget location: '%s'\n", gstate->locations[end_pos].name);
+            // Check if player can reach boeg
+            if (end_pos == gstate->boeg_pos && dice_roll >= dist) {
+                // Print path taken
+                print_path(gstate->par_player, gstate->locations, 
+                                gstate->player_pos[player_id], 
+                                gstate->boeg_pos, gstate->nPositions,
+                                dist, PLAYER_COLORS[player_id]);
+                // Move player to Boeg
+                gstate->player_pos[player_id] = gstate->boeg_pos;
+                // Update Boeg id
+                gstate->boeg_id = player_id;
+                // Make next move as Boeg
+                return GameState_move_command(gstate, player_id);
+            }
+            
+        } while(!HashMap_find(&reachablePos, end_pos));
+        
+        // Print path taken
+        print_path(gstate->par_player, gstate->locations, 
+                        gstate->player_pos[player_id], 
+                        end_pos, gstate->nPositions,
+                        dice_roll, PLAYER_COLORS[player_id]);
+        // Otherwise, move player to requested position
+        gstate->player_pos[player_id] = end_pos;
+        
+        return CONTINUE;
+    }
+}
 
 // Run game for at most MAX_TURNS
 GameResult_t GameState_run(GameState_t *gstate, bool verbose) {
     int winner = -1;
     unsigned int i;
-    unsigned int nTurns = 0;
-    enum STATUS status = CONTINUE;
+    unsigned int player_id;
+    unsigned int nTurns = 1;
+    enum STATUS status;
     if (verbose) {
         printf("--Beginning Game--\n\n");
+        printf("Player order: ");
+        for (i = 0; i < gstate->nPlayers; ++i) {
+            player_id = gstate->player_order[i];
+            printf("%s%u%s ", PLAYER_COLORS[player_id], player_id+1, DEFAULT_COLOR);
+        }
         GameState_info(gstate);
     }
     // Special game parameters
     const unsigned int avoidant_player = 0;
+    const unsigned int command_line_player = 1;
     const double avoidance = 40.0;
     
-    while (status != GAMEOVER && nTurns < MAX_TURNS) {
+    while (nTurns < MAX_TURNS) {
         if (verbose)
             printf("Round: %u\n", nTurns + 1);
         
         for (i = 0; i < gstate->nPlayers; ++i) {
+            player_id = gstate->player_order[i];
             // Player makes move
-            if (i == avoidant_player) {
-                status = GameState_move_avoidant(gstate, i, avoidance, verbose);
+            if (player_id == avoidant_player) {
+                status = GameState_move_avoidant(gstate, player_id, avoidance, verbose);
+            } else if (player_id == command_line_player) {
+                status = GameState_move_command(gstate, player_id);
             } else {
-                status = GameState_move_greedy(gstate, i, verbose);
+                status = GameState_move_greedy(gstate, player_id, verbose);
             }
             
             if (verbose) {
@@ -716,8 +894,8 @@ GameResult_t GameState_run(GameState_t *gstate, bool verbose) {
                 GameState_info(gstate);
             }
             if (status == GAMEOVER) {
-                winner = i;
-                break;
+                winner = player_id;
+                goto end;
             }
         }
         if (verbose)
@@ -725,6 +903,8 @@ GameResult_t GameState_run(GameState_t *gstate, bool verbose) {
         
         ++nTurns;
     }
+    
+end:
     // Check if maximum turns reached
     if (nTurns == MAX_TURNS) {
         fprintf(stderr, "\nReached maximum turns!\n");
@@ -768,7 +948,7 @@ void GameState_statistics(GameState_t *gstate, unsigned int nGames) {
     printf("\nStatistics:\n");
     for (i = 0; i < gstate->nPlayers; ++i) {
         printf("%sPlayer: %u\tWins: %u (%.2f%%)%s\n", PLAYER_COLORS[i], 
-                    i, wins[i], (double)wins[i] / nGames * 100., DEFAULT_COLOR);
+                    i+1, wins[i], (double)wins[i] / nGames * 100., DEFAULT_COLOR);
     }
     printf("Max. turns: %u\n", max_turns);
     printf("Min. turns: %u\n", min_turns);

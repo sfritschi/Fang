@@ -34,10 +34,10 @@ int main(int argc, char *argv[]) {
     GameState_init(&gstate, nPlayers);
     
     // Run game n times
-    const unsigned int nGames = 1024;
-    GameState_statistics(&gstate, nGames);
+    //const unsigned int nGames = 1024;
+    //GameState_statistics(&gstate, nGames);
     
-    //GameState_run(&gstate, 1);
+    GameState_run(&gstate, true);
     
     // Clean up game state
     GameState_free(&gstate);

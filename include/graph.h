@@ -279,8 +279,8 @@ void Graph_DFS_reachable(const Graph *graph, unsigned int u,
     visited_buf[u] = false;
 }
 
-// TODO: Also consider shortest distances to avoid costly recursion
-//       if not necessary
+// Determine if there exists a simple path from source to distance of
+// length exactly distance
 bool Graph_is_reachable(const Graph *graph, unsigned int source,
                                 unsigned int target, int distance,
                                   bool **visited_buf, int **distances_buf) {

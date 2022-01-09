@@ -15,6 +15,8 @@
 #define HASH_MAP_SIZE (257)  // prime
 #define HASH_DEFAULT_KEY (0xFFFFFFFF)
 
+#include <stdbool.h>
+
 typedef struct {
     unsigned int map[HASH_MAP_SIZE];
     short unsigned int index[HASH_MAP_SIZE];
@@ -76,6 +78,25 @@ int HashMap_insert(HashMap *h, unsigned int key) {
         }
     }
     return 0;  // ok
+}
+
+bool HashMap_find(const HashMap *h, unsigned int key) {
+    unsigned int hashIndex = hash(key) % HASH_MAP_SIZE;
+    unsigned int i = 0, j;
+    while (i < HASH_MAP_SIZE) {
+        // Linear probing
+        j = (hashIndex + i) % HASH_MAP_SIZE;
+        if (h->map[j] == HASH_DEFAULT_KEY) {
+            // Key was never inserted in the first place
+            return false;
+        } else if (h->map[j] == key) {
+            // Key found
+            return true;
+        }
+        ++i;
+    }
+    // Hash map is full and does not contain the key
+    return false;
 }
 
 void HashMap_print_full(const HashMap *h) {
