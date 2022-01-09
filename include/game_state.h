@@ -286,8 +286,10 @@ void GameState_init(GameState_t *gstate, unsigned int nPlayers) {
     Graph_BFS_APSP(&gstate->graph_boeg, gstate->dist_boeg, gstate->par_boeg);
     
     // Initialize auxiliary buffers
-    gstate->visited_buf = NULL;
-    gstate->distances_buf = NULL;
+    gstate->visited_buf = (bool *) malloc(nVert * sizeof(bool));
+    assert(gstate->visited_buf != NULL);
+    gstate->distances_buf = (int *) malloc(nVert * sizeof(int));
+    assert(gstate->distances_buf != NULL);
 }
 
 // Reset game state and re-randomize for next round
@@ -454,8 +456,8 @@ enum STATUS GameState_move_greedy(GameState_t *gstate, unsigned int player_id,
             HashMap reachablePos;
             reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
                                 gstate->boeg_pos, dice_roll,
-                                 &gstate->visited_buf, 
-                                 &gstate->distances_buf);
+                                gstate->visited_buf, 
+                                gstate->distances_buf);
             // Iterate over all reachable positions
             size_t current;
             const size_t nReachable = HashMap_size(&reachablePos);
@@ -599,8 +601,8 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate, unsigned int player_id,
         HashMap reachablePos;
         reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
                             gstate->boeg_pos, dice_roll,
-                                &gstate->visited_buf, 
-                                &gstate->distances_buf);
+                            gstate->visited_buf, 
+                            gstate->distances_buf);
         // Iterate over all reachable positions and evaluate objective
         size_t current;
         const size_t nReachable = HashMap_size(&reachablePos);
@@ -722,12 +724,14 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
     unsigned int target, offset_board, offset_targets;
     
     if (player_id == gstate->boeg_id) {  // playing as boeg
+        offset_board = gstate->boeg_pos * gstate->nPositions;
+        offset_targets = player_id * N_TARGETS_PLAYER;
         // Verify that there are any valid moves
         bool no_valid_moves = true;
         reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
                             gstate->boeg_pos, dice_roll,
-                            &gstate->visited_buf, 
-                            &gstate->distances_buf);
+                            gstate->visited_buf, 
+                            gstate->distances_buf);
         // Compute number of reachable Positions
         nReachable = HashMap_size(&reachablePos);
         for (current = 0; current < nReachable; ++current) {
@@ -739,18 +743,35 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
                 break;
             } 
         }
-        
+        // If there are no unoccupied locations reachable exactly within
+        // dice_roll steps, also check for active target locations that
+        // can be reached in strictly less steps and are vacant 
+        if (no_valid_moves) {
+            // Look for a valid, unoccupied target location that
+            // is reachable within less steps than dice_roll
+            for (i = 0; i < N_TARGETS_PLAYER; ++i) {
+                target = gstate->player_targets[offset_targets + i];
+                // Check if target is already visited
+                if (target == N_TARGETS) {
+                    continue;
+                }
+                // Distance from boeg position to target
+                dist = gstate->dist_boeg[offset_board + target];
+                if (!opponent_at_target(gstate, target, player_id) &&
+                    dice_roll >= dist) {
+                    // Found reachable, valid, unoccupied target location
+                    no_valid_moves = false;
+                    break;
+                }
+            }
+        }
         // If there are no valid moves, skip turn
         if (no_valid_moves) {
-            // TODO: Special case where a valid, unoccupied target location
-            //       is reachable within less steps than dice_roll
             printf("No valid moves!\n");
             printf("Skipping turn...\n");
             return CONTINUE;
         }
         // Repeat until user enters valid location
-        offset_board = gstate->boeg_pos * gstate->nPositions;
-        offset_targets = player_id * N_TARGETS_PLAYER;
         do {
             printf("Enter valid target location: ");
             // Read target location from command line
@@ -806,8 +827,8 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
     } else {
         reachablePos = Graph_reachable_pos(&gstate->graph_player,
                             gstate->player_pos[player_id], dice_roll,
-                            &gstate->visited_buf, 
-                            &gstate->distances_buf);
+                            gstate->visited_buf, 
+                            gstate->distances_buf);
         
         // Repeat until user enters valid location
         offset_board = gstate->player_pos[player_id] * gstate->nPositions;
@@ -870,7 +891,7 @@ GameResult_t GameState_run(GameState_t *gstate, bool verbose) {
     }
     // Special game parameters
     const unsigned int avoidant_player = 0;
-    const unsigned int command_line_player = 1;
+    const unsigned int command_line_player = MAX_PLAYERS;
     const double avoidance = 40.0;
     
     while (nTurns < MAX_TURNS) {

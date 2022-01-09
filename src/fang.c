@@ -34,10 +34,10 @@ int main(int argc, char *argv[]) {
     GameState_init(&gstate, nPlayers);
     
     // Run game n times
-    //const unsigned int nGames = 1024;
-    //GameState_statistics(&gstate, nGames);
+    const unsigned int nGames = 1024;
+    GameState_statistics(&gstate, nGames);
     
-    GameState_run(&gstate, true);
+    //GameState_run(&gstate, true);
     
     // Clean up game state
     GameState_free(&gstate);
@@ -92,12 +92,14 @@ int main0(int argc, char *argv[]) {
     unsigned int source = location_binsearch(locations_sorted, start, nVert);
     
     // Work space
-    bool *visited_buf = NULL;
-    int *distances_buf = NULL;
+    bool *visited_buf = (bool *) malloc(nVert * sizeof(bool));
+    assert(visited_buf != NULL);
+    int *distances_buf = (int *) malloc(nVert * sizeof(int));
+    assert(distances_buf != NULL);
     
     HashMap reachablePos;
     reachablePos = Graph_reachable_pos(&graph_player, source, distance, 
-                                        &visited_buf, &distances_buf);
+                                         visited_buf, distances_buf);
     
     printf("Reachable locations (%lu) from '%s' using exactly %d steps:\n\n", 
                 HashMap_size(&reachablePos), locations[source].name, distance);
@@ -169,12 +171,14 @@ int main1(int argc, char *argv[]) {
     unsigned int target = location_binsearch(locations_sorted, end, nVert);
     
     // Work space
-    bool *visited_buf = NULL;
-    int *distances_buf = NULL;
+    bool *visited_buf = (bool *) malloc(nVert * sizeof(bool));
+    assert(visited_buf != NULL);
+    int *distances_buf = (int *) malloc(nVert * sizeof(int));
+    assert(distances_buf != NULL);
     
     bool reachable;
     reachable = Graph_is_reachable(&graph_player, source, target, distance, 
-                                        &visited_buf, &distances_buf);
+                                        visited_buf, distances_buf);
     // Report
     printf("'%s' (%u) reachable from '%s' (%u) with exactly %d steps: ", 
             locations[target].name, target, locations[source].name, source, distance);

@@ -44,10 +44,10 @@ void Graph_BFS_APSP(const Graph *, int *, int *);
 void Graph_DFS_reachable(const Graph *, unsigned int , unsigned int, int,
                                     bool *, int *, bool *);
 bool Graph_is_reachable(const Graph *, unsigned int, unsigned int, int,
-                                  bool **, int **);
+                                  bool *, int *);
 void Graph_DFS_reachable_pos(const Graph *, unsigned int, int, 
                                 bool *, int *, HashMap *);
-HashMap Graph_reachable_pos(const Graph *, unsigned int, int, bool **, int **);
+HashMap Graph_reachable_pos(const Graph *, unsigned int, int, bool *, int *);
 void Graph_free(Graph *);
 
 void Graph_init_file(Graph *graph, FILE *fp) {
@@ -201,37 +201,27 @@ void Graph_DFS_reachable_pos(const Graph *graph, unsigned int u,
 }
 
 HashMap Graph_reachable_pos(const Graph *graph, unsigned int source,
-                                     int distance, bool **visited_buf,
-                                       int **distances_buf) {
+                                     int distance, bool *visited_buf,
+                                       int *distances_buf) {
     assert(source < graph->nVert);
     assert(visited_buf != NULL && distances_buf != NULL);
     assert(distance >= 0);
     
-    // Allocate buffer (workspace) if not allocated already
-    if (*visited_buf == NULL) {
-        *visited_buf = (bool *) malloc(graph->nVert * sizeof(bool));
-        assert(*visited_buf != NULL);
-    }
-    if (*distances_buf == NULL) {
-        *distances_buf = (int *) malloc(graph->nVert * sizeof(int));
-        assert(*distances_buf != NULL);
-    }
-    
     // (Re-)initialize workspace
     unsigned int i;
     for (i = 0; i < graph->nVert; ++i) {
-        (*visited_buf)[i] = false;
-        (*distances_buf)[i] = -1;
+        visited_buf[i] = false;
+        distances_buf[i] = -1;
     }
     // Initialize arrays for source
-    (*distances_buf)[source] = 0;
+    distances_buf[source] = 0;
     
     // Initialize linked-list containing reachable vertices
     HashMap reachableVert;
     HashMap_init(&reachableVert);
     
-    Graph_DFS_reachable_pos(graph, source, distance, *visited_buf, 
-                                *distances_buf, &reachableVert);
+    Graph_DFS_reachable_pos(graph, source, distance, visited_buf, 
+                                distances_buf, &reachableVert);
     
     return reachableVert;
 }
@@ -283,33 +273,23 @@ void Graph_DFS_reachable(const Graph *graph, unsigned int u,
 // length exactly distance
 bool Graph_is_reachable(const Graph *graph, unsigned int source,
                                 unsigned int target, int distance,
-                                  bool **visited_buf, int **distances_buf) {
+                                  bool *visited_buf, int *distances_buf) {
     assert(source < graph->nVert && target < graph->nVert);
     assert(visited_buf != NULL && distances_buf != NULL);
     assert(distance >= 0);
     
-    // Allocate buffer (workspace) if not allocated already
-    if (*visited_buf == NULL) {
-        *visited_buf = (bool *) malloc(graph->nVert * sizeof(bool));
-        assert(*visited_buf != NULL);
-    }
-    if (*distances_buf == NULL) {
-        *distances_buf = (int *) malloc(graph->nVert * sizeof(int));
-        assert(*distances_buf != NULL);
-    }
-    
     // (Re-)initialize workspace
     unsigned int i;
     for (i = 0; i < graph->nVert; ++i) {
-        (*visited_buf)[i] = false;
-        (*distances_buf)[i] = -1;
+        visited_buf[i] = false;
+        distances_buf[i] = -1;
     }
     // Initialize arrays for source
-    (*distances_buf)[source] = 0;
+    distances_buf[source] = 0;
     
     bool is_reachable = false;
-    Graph_DFS_reachable(graph, source, target, distance, *visited_buf,
-                *distances_buf, &is_reachable);
+    Graph_DFS_reachable(graph, source, target, distance, visited_buf,
+                distances_buf, &is_reachable);
     
     return is_reachable;
 }
