@@ -4,6 +4,7 @@
  */
 
 #include <stdio.h>
+#include <time.h>  // time()
 #include <stdlib.h>
 
 #include "game_state.h"
@@ -16,9 +17,8 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     
-    // Seed (pseudo-) random number generator
-    const unsigned int seed = 42;
-    srand(seed);
+    // Seed (pseudo-) random number generator with current time
+    srand(time(NULL));
     
     unsigned int nPlayers = atoi(argv[1]);
     if (!(MIN_PLAYERS <= nPlayers && nPlayers <= MAX_PLAYERS)) {
@@ -63,7 +63,6 @@ int main(int argc, char *argv[]) {
                 exit(EXIT_FAILURE);
         }
     }
-    
     // Initialize game state
     GameState_t gstate;
     GameState_init(&gstate, nPlayers);
@@ -77,7 +76,7 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "Player strategy u(user_command) not allowed here\n");
     }
     */
-    GameState_run(&gstate, player_strategies, false);
+    GameState_run(&gstate, player_strategies, true);
     
     // Clean up game state
     GameState_free(&gstate);

@@ -56,6 +56,12 @@ enum MOVE_STRATEGY {
     USER_COMMAND
 };
 
+const char *STRATEGY_NAMES[] = {
+    "GREEDY",
+    "AVOIDANT",
+    "USER COMMAND"
+};
+
 // Encodes all information of current state of the game
 typedef struct {
     unsigned int targets[N_TARGETS];
@@ -929,6 +935,15 @@ GameResult_t GameState_run(GameState_t *gstate,
         for (i = 0; i < gstate->nPlayers; ++i) {
             player_id = gstate->player_order[i];
             printf("%s%u%s ", PLAYER_COLORS[player_id], player_id+1, DEFAULT_COLOR);
+        }
+        printf("\n");
+        // Print strategies of individual players
+        for (i = 0; i < gstate->nPlayers; ++i) {
+            player_id = gstate->player_order[i];
+            // Retrieve strategy of current player
+            move_strat = player_strategies[player_id];
+            printf("%sPlayer %u: Strategy: %s%s\n", PLAYER_COLORS[player_id], 
+                player_id+1, STRATEGY_NAMES[move_strat], DEFAULT_COLOR);
         }
     }
     // Print initial board for command line players
