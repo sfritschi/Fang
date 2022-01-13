@@ -10,8 +10,8 @@
 
 int main(int argc, char *argv[]) {
     
-    if (argc != 2) {
-        fprintf(stderr, "Usage: ./fang <num_players %d:%d>\n",
+    if (argc < 2) {
+        fprintf(stderr, "Usage: ./fang <num_players %d:%d> <list of player strategies (a/g/u)>\n",
                                 MIN_PLAYERS, MAX_PLAYERS);
         exit(EXIT_FAILURE);
     }
@@ -23,24 +23,59 @@ int main(int argc, char *argv[]) {
     unsigned int nPlayers = atoi(argv[1]);
     if (!(MIN_PLAYERS <= nPlayers && nPlayers <= MAX_PLAYERS)) {
         fprintf(stderr, "Invalid number of players\n");
-        fprintf(stderr, "Usage: ./fang <num_players %d:%d>\n",
+        fprintf(stderr, "Usage: ./fang <num_players %d:%d> <list of player strategies (a,g,u)>\n",
                                 MIN_PLAYERS, MAX_PLAYERS);
         exit(EXIT_FAILURE);
     }
     printf("#Players: %u\n", nPlayers);
+    
+    if (argc - 2 != (int)nPlayers) {
+        fprintf(stderr, "Need to specify list of player strategies for all %u players\n", nPlayers);
+        fprintf(stderr, "Supported strategies: a(voidant), g(reedy), u(ser_command)\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    // Initialize player strategies
+    enum MOVE_STRATEGY *player_strategies =
+            (enum MOVE_STRATEGY *) malloc(nPlayers * sizeof(enum MOVE_STRATEGY));
+    assert(player_strategies != NULL);
+    
+    unsigned int i;
+    for (i = 0; i < nPlayers; ++i) {
+        // Read first character from individual arguments
+        char strat = argv[i + 2][0];
+        switch (strat) {
+            case 'a':
+                player_strategies[i] = AVOIDANT;
+                break;
+            case 'g':
+                player_strategies[i] = GREEDY;
+                break;
+            case 'u':
+                player_strategies[i] = USER_COMMAND;
+                break;
+            default:
+                // Unrecognized strategy -> exit
+                fprintf(stderr, "Did not recognize option: '%c'\n", strat);
+                free(player_strategies);
+                exit(EXIT_FAILURE);
+        }
+    }
     
     // Initialize game state
     GameState_t gstate;
     GameState_init(&gstate, nPlayers);
     
     // Run game n times
-    //const unsigned int nGames = 1024;
-    //GameState_statistics(&gstate, nGames);
+    const unsigned int nGames = 1024;
+    GameState_statistics(&gstate, player_strategies, nGames);
     
-    GameState_run(&gstate, true);
+    //GameState_run(&gstate, player_strategies, true);
     
     // Clean up game state
     GameState_free(&gstate);
+    // Clean up
+    free(player_strategies);
     
     return 0;
 }

@@ -45,7 +45,15 @@ const char *PLAYER_COLORS[MAX_PLAYERS] = {
 // Game status
 enum STATUS {
     CONTINUE,
-    GAMEOVER
+    GAMEOVER,
+    INVALID
+};
+
+// Move-making AI strategy
+enum MOVE_STRATEGY {
+    GREEDY,
+    AVOIDANT,
+    USER_COMMAND
 };
 
 // Encodes all information of current state of the game
@@ -387,8 +395,8 @@ void GameState_free(GameState_t *gstate) {
 
 // GREEDY STRATEGY:
 // Always move to closest target using shortest path
-enum STATUS GameState_move_greedy(GameState_t *gstate, unsigned int player_id,
-                                    int verbose) {
+enum STATUS GameState_move_greedy(GameState_t *gstate, 
+                    unsigned int player_id, bool verbose) {
     unsigned int i, j, offset_targets;
     unsigned int target, min_target = N_TARGETS;
     int dist, min_dist = RAND_MAX;
@@ -546,8 +554,8 @@ enum STATUS GameState_move_greedy(GameState_t *gstate, unsigned int player_id,
 
 // Avoid opponents when playing as Boeg, while still minimizing
 // distance to targets left
-enum STATUS GameState_move_avoidant(GameState_t *gstate, unsigned int player_id,
-                                    double avoidance, int verbose) {
+enum STATUS GameState_move_avoidant(GameState_t *gstate,
+                    unsigned int player_id, double avoidance, bool verbose) {
     unsigned int i, j, offset_targets;
     unsigned int target;
     int dist;
@@ -887,16 +895,32 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
     }
 }
 
+// Make move based on provided strategy
+enum STATUS GameState_move(GameState_t *gstate, 
+                            unsigned int player_id, double avoidance,
+                                enum MOVE_STRATEGY move_strat, bool verbose) {
+    switch(move_strat) {
+        case GREEDY:
+            return GameState_move_greedy(gstate, player_id, verbose);
+        case AVOIDANT:
+            return GameState_move_avoidant(gstate, player_id, avoidance, verbose);
+        case USER_COMMAND:
+            return GameState_move_command(gstate, player_id);
+        default:
+            return INVALID;
+    }
+}
+
 // Run game for at most MAX_TURNS
-GameResult_t GameState_run(GameState_t *gstate, bool verbose) {
+GameResult_t GameState_run(GameState_t *gstate, 
+        const enum MOVE_STRATEGY *player_strategies, bool verbose) {
     int winner = -1;
     unsigned int i;
     unsigned int player_id;
     unsigned int nTurns = 1;
     enum STATUS status;
-    // Special game parameters
-    const unsigned int avoidant_player = 0;
-    const unsigned int command_line_player = 1;
+    enum MOVE_STRATEGY move_strat;
+    // Special game parameter
     const double avoidance = 40.0;
     
     if (verbose) {
@@ -906,43 +930,45 @@ GameResult_t GameState_run(GameState_t *gstate, bool verbose) {
             player_id = gstate->player_order[i];
             printf("%s%u%s ", PLAYER_COLORS[player_id], player_id+1, DEFAULT_COLOR);
         }
-        GameState_info(gstate, command_line_player);
+        // Print initial board for command line players
+        for (i = 0; i < gstate->nPlayers; ++i) {
+            // Retrieve strategy of current player
+            move_strat = player_strategies[player_id];
+            if (move_strat == USER_COMMAND) {
+                GameState_info(gstate, player_id);
+            }
+        }
     }
     
     while (nTurns < MAX_TURNS) {
         if (verbose)
-            printf("Round: %u\n", nTurns);
+            printf("\nRound: %u\n", nTurns);
         
         for (i = 0; i < gstate->nPlayers; ++i) {
             player_id = gstate->player_order[i];
+            // Retrieve strategy of current player
+            move_strat = player_strategies[player_id];
             // Player makes move
-            if (player_id == avoidant_player) {
-                status = GameState_move_avoidant(gstate, player_id, avoidance, verbose);
-            } else if (player_id == command_line_player) {
-                status = GameState_move_command(gstate, player_id);
-                // extra space for better readability
-                printf("\n\n\n\n");
-            } else {
-                status = GameState_move_greedy(gstate, player_id, verbose);
-            }
+            status = GameState_move(gstate, player_id, avoidance, move_strat, verbose);
+            // DEBUG
+            assert(status != INVALID);
             // Check if game is over
             if (status == GAMEOVER) {
                 winner = player_id;
                 // Print final state of game
-                if (verbose) {
+                if (verbose || move_strat == USER_COMMAND) {
                     printf("\nBoard info:\n");
-                    GameState_info(gstate, command_line_player);
+                    GameState_info(gstate, player_id);
                     printf("Winner: %sPlayer %u%s\n", PLAYER_COLORS[winner],
                                     winner+1, DEFAULT_COLOR);
                 }
                 goto end;
             }
-            printf("\n");
         }
-        if (verbose) {
-            printf("Board info:\n");
+        if (verbose || move_strat == USER_COMMAND) {
+            printf("\nBoard info:\n");
             // Print current state of game
-            GameState_info(gstate, command_line_player);
+            GameState_info(gstate, player_id);
         }
         
         ++nTurns;
@@ -958,7 +984,9 @@ end:
 
 // Compute statistics (max., min. & avg. #turns as well as #wins of
 // individual players)
-void GameState_statistics(GameState_t *gstate, unsigned int nGames) {
+void GameState_statistics(GameState_t *gstate, 
+        const enum MOVE_STRATEGY *player_strategies, unsigned int nGames) {
+    
     unsigned int *wins = (unsigned int *) calloc(gstate->nPlayers, sizeof(unsigned int));
     assert(wins != NULL);
     
@@ -969,7 +997,7 @@ void GameState_statistics(GameState_t *gstate, unsigned int nGames) {
     GameResult_t result;
     unsigned int i;
     for (i = 0; i < nGames; ++i) {
-        result = GameState_run(gstate, false);
+        result = GameState_run(gstate, player_strategies, false);
         // Update wins
         if (result.winner != -1) {
             ++wins[result.winner];
