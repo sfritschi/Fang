@@ -930,13 +930,14 @@ GameResult_t GameState_run(GameState_t *gstate,
             player_id = gstate->player_order[i];
             printf("%s%u%s ", PLAYER_COLORS[player_id], player_id+1, DEFAULT_COLOR);
         }
-        // Print initial board for command line players
-        for (i = 0; i < gstate->nPlayers; ++i) {
-            // Retrieve strategy of current player
-            move_strat = player_strategies[player_id];
-            if (move_strat == USER_COMMAND) {
-                GameState_info(gstate, player_id);
-            }
+    }
+    // Print initial board for command line players
+    for (i = 0; i < gstate->nPlayers; ++i) {
+        player_id = gstate->player_order[i];
+        // Retrieve strategy of current player
+        move_strat = player_strategies[player_id];
+        if (move_strat == USER_COMMAND) {
+            GameState_info(gstate, player_id);
         }
     }
     
@@ -948,6 +949,12 @@ GameResult_t GameState_run(GameState_t *gstate,
             player_id = gstate->player_order[i];
             // Retrieve strategy of current player
             move_strat = player_strategies[player_id];
+            // Print board info
+            if (move_strat == USER_COMMAND) {
+                printf("\nBoard info:\n");
+                // Print current state of game
+                GameState_info(gstate, player_id);
+            }
             // Player makes move
             status = GameState_move(gstate, player_id, avoidance, move_strat, verbose);
             // DEBUG
@@ -956,19 +963,12 @@ GameResult_t GameState_run(GameState_t *gstate,
             if (status == GAMEOVER) {
                 winner = player_id;
                 // Print final state of game
-                if (verbose || move_strat == USER_COMMAND) {
-                    printf("\nBoard info:\n");
-                    GameState_info(gstate, player_id);
+                if (verbose) {
                     printf("Winner: %sPlayer %u%s\n", PLAYER_COLORS[winner],
                                     winner+1, DEFAULT_COLOR);
                 }
                 goto end;
             }
-        }
-        if (verbose || move_strat == USER_COMMAND) {
-            printf("\nBoard info:\n");
-            // Print current state of game
-            GameState_info(gstate, player_id);
         }
         
         ++nTurns;
@@ -984,8 +984,15 @@ end:
 
 // Compute statistics (max., min. & avg. #turns as well as #wins of
 // individual players)
-void GameState_statistics(GameState_t *gstate, 
+int GameState_statistics(GameState_t *gstate, 
         const enum MOVE_STRATEGY *player_strategies, unsigned int nGames) {
+    
+    unsigned int i;
+    for (i = 0; i < gstate->nPlayers; ++i) {
+        if (player_strategies[i] == USER_COMMAND) {
+            return -1;  // invalid player strategy
+        }
+    }
     
     unsigned int *wins = (unsigned int *) calloc(gstate->nPlayers, sizeof(unsigned int));
     assert(wins != NULL);
@@ -995,7 +1002,6 @@ void GameState_statistics(GameState_t *gstate,
     double avg_turns = 0.;
     
     GameResult_t result;
-    unsigned int i;
     for (i = 0; i < nGames; ++i) {
         result = GameState_run(gstate, player_strategies, false);
         // Update wins
@@ -1027,6 +1033,8 @@ void GameState_statistics(GameState_t *gstate,
     printf("Avg. turns: %.2f\n", avg_turns);
     // Cleanup
     free(wins);
+    
+    return 0;  // ok
 }
 
 #endif /* GAME_STATE_H */
