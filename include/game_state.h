@@ -731,8 +731,9 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate,
                             
 enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) {
     
+    unsigned int player_pos;
     unsigned int end_pos;
-    int dist;
+    int dist, min_dist;
     char end_loc[MAX_LOCATION_LEN];
     // Roll dice
     int dice_roll = roll_dice();
@@ -846,6 +847,12 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
                 gstate->boeg_pos = end_pos;
                 
                 return CONTINUE;
+            } else {
+                min_dist = gstate->dist_boeg[offset_board + end_pos];
+                printf("\nCannot reach '%s' from '%s' using %d step(s) (min. is %d)\n",
+                    gstate->locations[end_pos].name, 
+                    gstate->locations[gstate->boeg_pos].name,
+                    dice_roll, min_dist);
             }
         }
         
@@ -854,9 +861,10 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
                             gstate->player_pos[player_id], dice_roll,
                             gstate->visited_buf, 
                             gstate->distances_buf);
-        
+        // Player position
+        player_pos = gstate->player_pos[player_id];
         // Repeat until user enters valid location
-        offset_board = gstate->player_pos[player_id] * gstate->nPositions;
+        offset_board = player_pos * gstate->nPositions;
         // Distance from current position of player to boeg
         dist = gstate->dist_player[offset_board + gstate->boeg_pos];
         // Repeat until valid position is entered
@@ -874,7 +882,7 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
             if (end_pos == gstate->boeg_pos && dice_roll >= dist) {
                 // Print path taken
                 print_path(gstate->par_player, gstate->locations, 
-                                gstate->player_pos[player_id], 
+                                player_pos, 
                                 gstate->boeg_pos, gstate->nPositions,
                                 dist, PLAYER_COLORS[player_id]);
                 // Move player to Boeg
@@ -889,13 +897,19 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
                 // Valid position
                 // Print path taken
                 print_path(gstate->par_player, gstate->locations, 
-                                gstate->player_pos[player_id], 
+                                player_pos, 
                                 end_pos, gstate->nPositions,
                                 dice_roll, PLAYER_COLORS[player_id]);
                 // Otherwise, move player to requested position
                 gstate->player_pos[player_id] = end_pos;
                 
                 return CONTINUE;
+            } else {
+                min_dist = gstate->dist_player[player_pos * gstate->nPositions + end_pos];
+                printf("\nCannot reach '%s' from '%s' using %d step(s) (min. is %d)\n",
+                    gstate->locations[end_pos].name, 
+                    gstate->locations[player_pos].name,
+                    dice_roll, min_dist);
             }
         }
     }
@@ -977,7 +991,7 @@ GameResult_t GameState_run(GameState_t *gstate,
             // Check if game is over
             if (status == GAMEOVER) {
                 winner = player_id;
-                // Print final state of game
+                // Print result of game
                 if (verbose) {
                     printf("Winner: %sPlayer %u%s\n", PLAYER_COLORS[winner],
                                     winner+1, DEFAULT_COLOR);
