@@ -417,6 +417,7 @@ enum STATUS GameState_move_greedy(GameState_t *gstate,
             dice_roll, DEFAULT_COLOR);
     // Check if playing as Boeg
     if (player_id == gstate->boeg_id) {
+        
         offset_targets = player_id * N_TARGETS_PLAYER;
         offset_board = gstate->boeg_pos * gstate->nPositions;
         // Check all remaining targets if reachable
@@ -527,6 +528,7 @@ enum STATUS GameState_move_greedy(GameState_t *gstate,
         }
         return CONTINUE;
     } else {
+        
         offset_board = gstate->player_pos[player_id] * gstate->nPositions;
         // Move to closest position of Boeg
         // Distance between player and Boeg
@@ -576,6 +578,7 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate,
             dice_roll, DEFAULT_COLOR);
     // Check if playing as Boeg
     if (player_id == gstate->boeg_id) {
+        
         offset_targets = player_id * N_TARGETS_PLAYER;
         offset_board = gstate->boeg_pos * gstate->nPositions;
         // Check all remaining targets if reachable
@@ -621,7 +624,8 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate,
         // Obtain HashMap of all reachable positions from current pos
         // in exactly 'dice_roll' steps
         HashMap reachablePos;
-        reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
+        reachablePos = Graph_reachable_pos(
+                            &gstate->graph_boeg,
                             gstate->boeg_pos, dice_roll,
                             gstate->visited_buf, 
                             gstate->distances_buf);
@@ -698,6 +702,7 @@ enum STATUS GameState_move_avoidant(GameState_t *gstate,
         return CONTINUE;
         
     } else {
+        
         offset_board = gstate->player_pos[player_id] * gstate->nPositions;
         // Move to closest position of Boeg
         // Distance between player and Boeg
@@ -747,11 +752,13 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
     unsigned int target, offset_board, offset_targets;
     
     if (player_id == gstate->boeg_id) {  // playing as boeg
+        
         offset_board = gstate->boeg_pos * gstate->nPositions;
         offset_targets = player_id * N_TARGETS_PLAYER;
         // Verify that there are any valid moves
         bool no_valid_moves = true;
-        reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
+        reachablePos = Graph_reachable_pos(
+                            &gstate->graph_boeg,
                             gstate->boeg_pos, dice_roll,
                             gstate->visited_buf, 
                             gstate->distances_buf);
@@ -857,7 +864,9 @@ enum STATUS GameState_move_command(GameState_t *gstate, unsigned int player_id) 
         }
         
     } else {
-        reachablePos = Graph_reachable_pos(&gstate->graph_player,
+        
+        reachablePos = Graph_reachable_pos(
+                            &gstate->graph_player,
                             gstate->player_pos[player_id], dice_roll,
                             gstate->visited_buf, 
                             gstate->distances_buf);
