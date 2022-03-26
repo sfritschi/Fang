@@ -477,7 +477,8 @@ enum STATUS GameState_move_greedy(GameState_t *gstate,
             // Obtain HashMap of all reachable positions from current pos
             // in exactly 'dice_roll' steps
             HashMap reachablePos;
-            reachablePos = Graph_reachable_pos(&gstate->graph_boeg,
+            reachablePos = Graph_reachable_pos(
+                                &gstate->graph_boeg,
                                 gstate->boeg_pos, dice_roll,
                                 gstate->visited_buf, 
                                 gstate->distances_buf);
