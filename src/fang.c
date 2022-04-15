@@ -18,7 +18,8 @@ int main(int argc, char *argv[]) {
     }
     
     // Seed (pseudo-) random number generator with current time
-    srand(time(NULL));
+    //srand(time(NULL));
+    srand(42);
     
     unsigned int nPlayers = atoi(argv[1]);
     if (!(MIN_PLAYERS <= nPlayers && nPlayers <= MAX_PLAYERS)) {
@@ -63,22 +64,25 @@ int main(int argc, char *argv[]) {
                 exit(EXIT_FAILURE);
         }
     }
+    // Initialize board
+    BoardInfo_t binfo;
+    BoardInfo_init(&binfo);
+    
     // Initialize game state
     GameState_t gstate;
-    GameState_init(&gstate, nPlayers);
+    GameState_init(&gstate, nPlayers, binfo.nPositions);
     
     // Run game n times
-    /*
-    const unsigned int nGames = 1024;
-    ierr = GameState_statistics(&gstate, player_strategies, nGames);
+    const unsigned int nGames = 1 << 10;
+    ierr = GameState_statistics(&binfo, &gstate, player_strategies, nGames);
     
     if (ierr) {
         fprintf(stderr, "Player strategy u(user_command) not allowed here\n");
     }
-    */
-    GameState_run(&gstate, player_strategies, true);
+    //GameState_run(&gstate, player_strategies, true);
     
-    // Clean up game state
+    // Clean up board info and game state
+    BoardInfo_free(&binfo);
     GameState_free(&gstate);
     // Clean up
     free(player_strategies);
