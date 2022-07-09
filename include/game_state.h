@@ -597,7 +597,7 @@ enum STATUS GameState_move_greedy(const BoardInfo_t *binfo,
 
 // Avoid opponents when playing as Boeg, while still minimizing
 // distance to targets left
-enum STATUS GameState_move_avoidant(BoardInfo_t *binfo, 
+enum STATUS GameState_move_avoidant(const BoardInfo_t *binfo, 
         GameState_t *gstate, unsigned int player_id, 
         double avoidance, bool verbose) {
     unsigned int i, j, offset_targets;
@@ -771,7 +771,7 @@ enum STATUS GameState_move_avoidant(BoardInfo_t *binfo,
     }
 }
                             
-enum STATUS GameState_move_command(BoardInfo_t *binfo, 
+enum STATUS GameState_move_command(const BoardInfo_t *binfo, 
         GameState_t *gstate, unsigned int player_id) {
     
     unsigned int player_pos;
@@ -963,7 +963,7 @@ enum STATUS GameState_move_command(BoardInfo_t *binfo,
 }
 
 // Make move based on provided strategy
-enum STATUS GameState_move(BoardInfo_t *binfo, GameState_t *gstate, 
+enum STATUS GameState_move(const BoardInfo_t *binfo, GameState_t *gstate, 
                             unsigned int player_id, double avoidance,
                                 enum MOVE_STRATEGY move_strat, bool verbose) {
     switch (move_strat) {
@@ -979,7 +979,7 @@ enum STATUS GameState_move(BoardInfo_t *binfo, GameState_t *gstate,
 }
 
 // Run game for at most MAX_TURNS
-GameResult_t GameState_run(BoardInfo_t *binfo, GameState_t *gstate, 
+GameResult_t GameState_run(const BoardInfo_t *binfo, GameState_t *gstate, 
         const enum MOVE_STRATEGY *player_strategies, bool verbose) {
     int winner = -1;
     unsigned int i;
@@ -1021,6 +1021,7 @@ GameResult_t GameState_run(BoardInfo_t *binfo, GameState_t *gstate,
         if (verbose)
             printf("\nRound: %u\n", nTurns);
         
+        // All players that are actively playing make their move
         for (i = 0; i < gstate->nPlayers; ++i) {
             player_id = gstate->player_order[i];
             // If player has already finished, move on to next player
@@ -1076,7 +1077,7 @@ end:
 
 // Compute statistics (max., min. & avg. #turns as well as #wins of
 // individual players)
-int GameState_statistics(BoardInfo_t *binfo, GameState_t *gstate, 
+int GameState_statistics(const BoardInfo_t *binfo, GameState_t *gstate, 
         const enum MOVE_STRATEGY *player_strategies, unsigned int nGames) {
     
     unsigned int i;
