@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <assert.h>
 #include <math.h>  // INFINITY
 
@@ -31,9 +32,14 @@
 #define N_TARGETS (40)
 #define N_TARGETS_PLAYER (4)
 
+// Modify active players (AP) mask
+#define AP_INIT(ap, np) (ap = (1 << np) - 1)
+#define AP_UNSET(ap, i) (ap = ap & ~(1 << i))
+#define AP_ISSET(ap, i) ((ap >> i) & 0x1)
+
 // Colors used for terminal output
-const char *DEFAULT_COLOR = "\033[0m";
-const char *PLAYER_COLORS[MAX_PLAYERS] = {
+static const char *DEFAULT_COLOR = "\033[0m";
+static const char *PLAYER_COLORS[MAX_PLAYERS] = {
     "\033[38;5;160m",  // RED
     "\033[38;5;40m",   // GREEN
     "\033[38;5;68m",   // BLUE
@@ -56,7 +62,7 @@ enum MOVE_STRATEGY {
     USER_COMMAND
 };
 
-const char *STRATEGY_NAMES[] = {
+static const char *STRATEGY_NAMES[] = {
     "GREEDY",
     "AVOIDANT",
     "USER COMMAND"
@@ -87,9 +93,13 @@ typedef struct {
     unsigned int boeg_id;  // Keeps track which player is currently the boeg
     // Number of players
     unsigned int nPlayers;
+    // Number of active players
+    unsigned int nActivePlayers;
     // Auxiliary buffers needed for graph algorithms
     bool *visited_buf;
     int *distances_buf;
+    // Bitmask for active players
+    int8_t active_players;
 } GameState_t;
 
 // Encodes information about results of game
@@ -126,7 +136,8 @@ bool opponent_at_target(const GameState_t *gstate, unsigned int target,
                         unsigned int player_id) {
     unsigned int j;
     for (j = 0; j < gstate->nPlayers; ++j) {
-        if (j != player_id && gstate->player_pos[j] == target) {
+        if (j != player_id && AP_ISSET(gstate->active_players, j) &&
+                gstate->player_pos[j] == target) {
             return true;
         }
     }
@@ -268,6 +279,9 @@ void GameState_init(GameState_t *gstate, unsigned int nPlayers,
     
     // Initialize number of players
     gstate->nPlayers = nPlayers;
+    // Set active players
+    gstate->nActivePlayers = nPlayers;
+    AP_INIT(gstate->active_players, nPlayers);
     // Initialize Boeg id
     gstate->boeg_id = BOEG_ID_DEFAULT; 
     unsigned int i, j;
@@ -319,6 +333,9 @@ void GameState_reset(GameState_t *gstate, unsigned int nPositions) {
         gstate->player_pos[i] = (rand() % (nPositions - N_TARGETS)) + N_TARGETS;
         gstate->player_targets_left[i] = N_TARGETS_PLAYER;
     }
+    // Reset active players
+    gstate->nActivePlayers = gstate->nPlayers;
+    AP_INIT(gstate->active_players, gstate->nPlayers);
     // Re-shuffle player order
     shuffle(gstate->player_order, gstate->nPlayers);
     // Reset (static) targets
@@ -352,9 +369,11 @@ void GameState_info(const BoardInfo_t *binfo, const GameState_t *gstate,
     
     printf("\nPlayer pos:\n");
     for (i = 0; i < gstate->nPlayers; ++i) {
-        pos = gstate->player_pos[i];
-        print_colored(binfo->locations[pos].name, PLAYER_COLORS[i]);
-        printf("\n");
+        if (AP_ISSET(gstate->active_players, i)) {
+            pos = gstate->player_pos[i];
+            print_colored(binfo->locations[pos].name, PLAYER_COLORS[i]);
+            printf("\n");
+        }
     }
     printf("\n");
     if (gstate->boeg_id != BOEG_ID_DEFAULT) {
@@ -364,20 +383,25 @@ void GameState_info(const BoardInfo_t *binfo, const GameState_t *gstate,
     }
     printf("\n%s\n\n", binfo->locations[gstate->boeg_pos].name);
     
-    printf("Your targets:\n");
-    unsigned int offset = command_id * N_TARGETS_PLAYER;
-    for (j = 0; j < N_TARGETS_PLAYER; ++j) {
-        pos = gstate->player_targets[offset + j];
-        if (pos == N_TARGETS) {
-            continue;
+    
+    if (AP_ISSET(gstate->active_players, command_id)) {
+        printf("Your targets:\n");
+        unsigned int offset = command_id * N_TARGETS_PLAYER;
+        for (j = 0; j < N_TARGETS_PLAYER; ++j) {
+            pos = gstate->player_targets[offset + j];
+            if (pos == N_TARGETS) {
+                continue;
+            }
+            print_colored(binfo->locations[pos].name, PLAYER_COLORS[command_id]);
+            printf("\n");
         }
-        print_colored(binfo->locations[pos].name, PLAYER_COLORS[command_id]);
-        printf("\n");
     }
     printf("\n#Player targets left: ");
     for (i = 0; i < gstate->nPlayers; ++i) {
-        printf("%s%u%s ", PLAYER_COLORS[i], gstate->player_targets_left[i],
-                            DEFAULT_COLOR);
+        if (AP_ISSET(gstate->active_players, i)) {
+            printf("%s%u%s ", PLAYER_COLORS[i], gstate->player_targets_left[i],
+                                DEFAULT_COLOR);
+        }
     }
     printf("\n");
 }
@@ -667,7 +691,8 @@ enum STATUS GameState_move_avoidant(BoardInfo_t *binfo,
                 // Iterate over all opponent positions and update objective
                 for (i = 0; i < gstate->nPlayers; ++i) {
                     // Ignore self
-                    if (i == player_id) {
+                    if (i == player_id || 
+                            !AP_ISSET(gstate->active_players, i)) {
                         continue;
                     }
                     unsigned int opp_pos = gstate->player_pos[i];
@@ -941,7 +966,7 @@ enum STATUS GameState_move_command(BoardInfo_t *binfo,
 enum STATUS GameState_move(BoardInfo_t *binfo, GameState_t *gstate, 
                             unsigned int player_id, double avoidance,
                                 enum MOVE_STRATEGY move_strat, bool verbose) {
-    switch(move_strat) {
+    switch (move_strat) {
         case GREEDY:
             return GameState_move_greedy(binfo, gstate, player_id, verbose);
         case AVOIDANT:
@@ -998,6 +1023,10 @@ GameResult_t GameState_run(BoardInfo_t *binfo, GameState_t *gstate,
         
         for (i = 0; i < gstate->nPlayers; ++i) {
             player_id = gstate->player_order[i];
+            // If player has already finished, move on to next player
+            if (!AP_ISSET(gstate->active_players, player_id)) {
+                continue;
+            }
             // Retrieve strategy of current player
             move_strat = player_strategies[player_id];
             // Print board info
@@ -1012,13 +1041,20 @@ GameResult_t GameState_run(BoardInfo_t *binfo, GameState_t *gstate,
             assert(status != INVALID);
             // Check if game is over
             if (status == GAMEOVER) {
-                winner = player_id;
-                // Print result of game
-                if (verbose) {
-                    printf("Winner: %sPlayer %u%s\n", PLAYER_COLORS[winner],
-                                    winner+1, DEFAULT_COLOR);
+                if (gstate->nActivePlayers == gstate->nPlayers) {
+                    // First player to reach game over is winner
+                    winner = player_id;
                 }
-                goto end;
+                // Reset boeg ID to default
+                assert(player_id == gstate->boeg_id);
+                gstate->boeg_id = BOEG_ID_DEFAULT;
+                // Remove this player from set of active players
+                AP_UNSET(gstate->active_players, player_id);
+                
+                if (--gstate->nActivePlayers == 1) {
+                    // Game is decided -> QUIT
+                    goto end;
+                }
             }
         }
         
@@ -1026,9 +1062,14 @@ GameResult_t GameState_run(BoardInfo_t *binfo, GameState_t *gstate,
     }
     
 end:
-    // Check if maximum turns reached
-    if (nTurns == MAX_TURNS) {
+    // Check if maximum turns reached AND no player finished
+    if (winner == -1 && nTurns == MAX_TURNS) {
         fprintf(stderr, "\nReached maximum turns!\n");
+    } else if (verbose) {
+        assert(winner != -1);
+        // Print result of game
+        printf("Winner: %sPlayer %u%s\n", PLAYER_COLORS[winner],
+                        winner+1, DEFAULT_COLOR);
     }
     return (GameResult_t) {.winner=winner, .nTurns=nTurns};
 }
