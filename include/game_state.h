@@ -93,8 +93,6 @@ typedef struct {
     unsigned int boeg_id;  // Keeps track which player is currently the boeg
     // Number of players
     unsigned int nPlayers;
-    // Number of active players
-    unsigned int nActivePlayers;
     // Auxiliary buffers needed for graph algorithms
     bool *visited_buf;
     int *distances_buf;
@@ -280,7 +278,6 @@ void GameState_init(GameState_t *gstate, unsigned int nPlayers,
     // Initialize number of players
     gstate->nPlayers = nPlayers;
     // Set active players
-    gstate->nActivePlayers = nPlayers;
     AP_INIT(gstate->active_players, nPlayers);
     // Initialize Boeg id
     gstate->boeg_id = BOEG_ID_DEFAULT; 
@@ -334,7 +331,6 @@ void GameState_reset(GameState_t *gstate, unsigned int nPositions) {
         gstate->player_targets_left[i] = N_TARGETS_PLAYER;
     }
     // Reset active players
-    gstate->nActivePlayers = gstate->nPlayers;
     AP_INIT(gstate->active_players, gstate->nPlayers);
     // Re-shuffle player order
     shuffle(gstate->player_order, gstate->nPlayers);
@@ -447,7 +443,7 @@ enum STATUS GameState_move_greedy(const BoardInfo_t *binfo,
     // Roll dice
     int dice_roll = roll_dice();
     if (verbose)
-        printf("%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
+        printf("\n%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
             dice_roll, DEFAULT_COLOR);
     // Check if playing as Boeg
     if (player_id == gstate->boeg_id) {
@@ -610,7 +606,7 @@ enum STATUS GameState_move_avoidant(const BoardInfo_t *binfo,
     // Roll dice
     int dice_roll = roll_dice();
     if (verbose)
-        printf("%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
+        printf("\n%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
             dice_roll, DEFAULT_COLOR);
     // Check if playing as Boeg
     if (player_id == gstate->boeg_id) {
@@ -780,7 +776,7 @@ enum STATUS GameState_move_command(const BoardInfo_t *binfo,
     char end_loc[MAX_LOCATION_LEN];
     // Roll dice
     int dice_roll = roll_dice();
-    printf("%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
+    printf("\n%sDice Roll: %d%s\n\n", PLAYER_COLORS[player_id], 
                 dice_roll, DEFAULT_COLOR);
     
     // Need to consider all reachable positions
@@ -845,7 +841,7 @@ enum STATUS GameState_move_command(const BoardInfo_t *binfo,
             // Read target location from command line
             fgets(end_loc, MAX_LOCATION_LEN, stdin);
             // Remove newline
-            end_loc[strcspn(end_loc, "\n")] = 0;
+            end_loc[strcspn(end_loc, "\n")] = '\0';
             // Find associated index of target location using binary search
             end_pos = location_binsearch(binfo->locations_sorted, end_loc, 
                                                 binfo->nPositions);
@@ -982,13 +978,15 @@ enum STATUS GameState_move(const BoardInfo_t *binfo, GameState_t *gstate,
 GameResult_t GameState_run(const BoardInfo_t *binfo, GameState_t *gstate, 
         const enum MOVE_STRATEGY *player_strategies, bool verbose) {
     int winner = -1;
-    unsigned int i;
+    unsigned int i, j;
     unsigned int player_id;
     unsigned int nTurns = 1;
     enum STATUS status;
     enum MOVE_STRATEGY move_strat;
     // Special game parameter
     const double avoidance = 40.0;
+    unsigned int ranking[MAX_PLAYERS] = {0};
+    unsigned int nFinished = 0;  // how many players have finished
     
     if (verbose) {
         printf("--Beginning Game--\n\n");
@@ -1042,7 +1040,7 @@ GameResult_t GameState_run(const BoardInfo_t *binfo, GameState_t *gstate,
             assert(status != INVALID);
             // Check if game is over
             if (status == GAMEOVER) {
-                if (gstate->nActivePlayers == gstate->nPlayers) {
+                if (nFinished == 0) {
                     // First player to reach game over is winner
                     winner = player_id;
                 }
@@ -1051,8 +1049,18 @@ GameResult_t GameState_run(const BoardInfo_t *binfo, GameState_t *gstate,
                 gstate->boeg_id = BOEG_ID_DEFAULT;
                 // Remove this player from set of active players
                 AP_UNSET(gstate->active_players, player_id);
+                // Update ranking of players
+                ranking[nFinished++] = player_id;
                 
-                if (--gstate->nActivePlayers == 1) {
+                if (nFinished == gstate->nPlayers - 1) {
+                    // Determine last place (last set bit in active_players)
+                    for (j = 0; j < gstate->nPlayers; ++j) {
+                        if (AP_ISSET(gstate->active_players, j)) {
+                            ranking[nFinished++] = j;
+                            break;  // found
+                        }
+                    }
+                    
                     // Game is decided -> QUIT
                     goto end;
                 }
@@ -1069,8 +1077,13 @@ end:
     } else if (verbose) {
         assert(winner != -1);
         // Print result of game
-        printf("Winner: %sPlayer %u%s\n", PLAYER_COLORS[winner],
+        printf("\nWINNER: %sPlayer %u%s\n", PLAYER_COLORS[winner],
                         winner+1, DEFAULT_COLOR);
+        for (i = 1; i < nFinished; ++i) {
+            player_id = ranking[i];
+            printf("%u. Place: %sPlayer %u%s\n", i+1, 
+                PLAYER_COLORS[player_id], player_id+1, DEFAULT_COLOR);
+        }
     }
     return (GameResult_t) {.winner=winner, .nTurns=nTurns};
 }

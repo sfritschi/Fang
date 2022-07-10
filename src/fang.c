@@ -36,8 +36,6 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
     
-    // Error code
-    int ierr = 0;
     // Initialize player strategies
     enum MOVE_STRATEGY *player_strategies =
             (enum MOVE_STRATEGY *) malloc(nPlayers * sizeof(enum MOVE_STRATEGY));
@@ -72,22 +70,14 @@ int main(int argc, char *argv[]) {
     GameState_t gstate;
     GameState_init(&gstate, nPlayers, binfo.nPositions);
     
-    // Run game n times
-    const unsigned int nGames = 1 << 10;
-    ierr = GameState_statistics(&binfo, &gstate, player_strategies, nGames);
-    
-    if (ierr) {
-        fprintf(stderr, "Player strategy u(user_command) not allowed here\n");
-    }
-    //GameState_run(&gstate, player_strategies, true);
-    
+    GameState_run(&binfo, &gstate, player_strategies, true);
     // Clean up board info and game state
     BoardInfo_free(&binfo);
     GameState_free(&gstate);
     // Clean up
     free(player_strategies);
     
-    return ierr;
+    return EXIT_SUCCESS;
 }
 
 int main0(int argc, char *argv[]) {
