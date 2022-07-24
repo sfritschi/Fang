@@ -19,8 +19,8 @@ int main(int argc, char *argv[]) {
     }
     
     // Seed (pseudo-) random number generator
-    //set_seed(time(NULL));
-    set_seed(42);
+    set_seed(time(NULL));
+    //set_seed(42);
     
     unsigned int nPlayers = atoi(argv[1]);
     if (!(MIN_PLAYERS <= nPlayers && nPlayers <= MAX_PLAYERS)) {
@@ -71,8 +71,8 @@ int main(int argc, char *argv[]) {
     GameState_t gstate;
     GameState_init(&gstate, nPlayers, binfo.nPositions);
     
-    //GameState_run(&binfo, &gstate, player_strategies, false, true);
-    GameState_statistics(&binfo, &gstate, player_strategies, 1024);
+    GameState_run(&binfo, &gstate, player_strategies, false, true);
+    //GameState_statistics(&binfo, &gstate, player_strategies, 1024);
     // Clean up board info and game state
     BoardInfo_free(&binfo);
     GameState_free(&gstate);

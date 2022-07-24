@@ -465,6 +465,10 @@ enum STATUS GameState_move_greedy(const BoardInfo_t *binfo,
                     print_path(binfo->par_boeg, binfo->locations, 
                             gstate->boeg_pos, target, binfo->nPositions,
                             dist, DEFAULT_COLOR);
+                    // Print which target was visited
+                    printf("%sPlayer %u%s visited target '%s'\n",
+                        PLAYER_COLORS[player_id], player_id+1,
+                        DEFAULT_COLOR, binfo->locations[target].name);
                 }
                 // Move Boeg to this target
                 gstate->boeg_pos = target;
@@ -628,6 +632,10 @@ enum STATUS GameState_move_avoidant(const BoardInfo_t *binfo,
                     print_path(binfo->par_boeg, binfo->locations, 
                             gstate->boeg_pos, target, binfo->nPositions,
                             dist, DEFAULT_COLOR);
+                    // Print which target was visited
+                    printf("%sPlayer %u%s visited target '%s'\n",
+                        PLAYER_COLORS[player_id], player_id+1,
+                        DEFAULT_COLOR, binfo->locations[target].name);
                 }
                 // Move Boeg to this target
                 gstate->boeg_pos = target;
@@ -865,6 +873,10 @@ enum STATUS GameState_move_command(const BoardInfo_t *binfo,
                     print_path(binfo->par_boeg, binfo->locations, 
                                 gstate->boeg_pos, target, binfo->nPositions,
                                 dist, DEFAULT_COLOR);
+                    // Print which target was visited
+                    printf("%sPlayer %u%s visited target '%s'\n",
+                        PLAYER_COLORS[player_id], player_id+1,
+                        DEFAULT_COLOR, binfo->locations[target].name);
                     // Move Boeg to this target
                     gstate->boeg_pos = target;
                     // Update targets (invalidate & decrement)
