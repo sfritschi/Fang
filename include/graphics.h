@@ -40,12 +40,9 @@ static const GLchar *_boardVertShaderTemplate = R"glsl(
 layout(location = 0) in vec2 aPos;
 layout(location = 1) in vec3 aColor;
 layout(location = 2) in vec2 aOffset;
-
 uniform bool isInstanced;
 uniform vec3 circInstanceColors[%d];
-
 out vec3 vertexColor;
-
 void main() {
     vec2 finalPos = aPos;
     if (isInstanced) {
@@ -65,9 +62,7 @@ void main() {
 static const GLchar *_boardFragShaderSource = R"glsl(
 #version 460 core
 out vec4 fragColor;
-
 in vec3 vertexColor;
-
 void main() {
     fragColor = vec4(vertexColor, 1.0);
 }
@@ -113,15 +108,11 @@ static const vec3 COLORS[] = {
 
 // OpenGL helpers
 void setIsInstanced(GLboolean flag)
-{
-    glUseProgram(_boardShaderProgram);
-    
+{    
     // Get location for isInstanced from shader program
     GLint isInstancedLoc = glGetUniformLocation(_boardShaderProgram, "isInstanced");
     // Set isInstanced in vertex shader to 'flag'
     glUniform1i(isInstancedLoc, flag);
-    
-    glUseProgram(0);
 }
 
 void setColor(const vec3 rgb, GLuint i)
@@ -343,7 +334,7 @@ void renderBoard(GLuint nNodes, GLuint nEdges)
     // Last argument specifies total number of vertices. Three consecutive
     // vertices are drawn as one triangle
     glBindVertexArray(_vaoNode);
-    setIsInstanced(1);  // set to true
+    setIsInstanced(GL_TRUE);  // set to true
     // NOTE: GL_TRIANGLE_FAN draws N - 2 triangles -> first point
     //       (after center) must be included at the end as well
     glDrawArraysInstanced(GL_TRIANGLE_FAN, 0, N_TRIANGLES_CIRCLE + 2, nNodes);
@@ -351,7 +342,7 @@ void renderBoard(GLuint nNodes, GLuint nEdges)
     
     glBindVertexArray(_vaoEdge);
     glLineWidth(EDGE_WIDTH);
-    setIsInstanced(0);  // set to false
+    setIsInstanced(GL_FALSE);  // set to false
     glDrawArrays(GL_LINES, 0, 6*nEdges);
     glBindVertexArray(0);
     
