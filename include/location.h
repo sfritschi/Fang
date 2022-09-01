@@ -11,12 +11,16 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <assert.h>
 
 #define MAX_LOCATION_LEN (40)
+#define LOCATION_BUF_SIZE (128)
+#define LOC_DIMS (2)
 
 // Encapsulate location information (vertex of board)
 typedef struct {
     char name[MAX_LOCATION_LEN];
+    float pos[LOC_DIMS];
     unsigned int index;
 } Location_t;
 
@@ -77,16 +81,56 @@ unsigned int location_binsearch(const Location_t *locations_sorted,
 }
 
 // Read locations from file (initialize arrays)
-void read_locations(FILE *fp, Location_t *locations, Location_t *locations_sorted) {
+void read_locations(FILE *fp, Location_t *locations, 
+                    Location_t *locations_sorted, unsigned int nLoc) {
     assert(fp != NULL);
-    
-    Location_t loc;
+
     unsigned int i = 0;
-    while ((fscanf(fp, "%[^\n] ", loc.name)) != EOF) {
-        loc.index = i;
+    Location_t loc;
+
+    char locationBuf[LOCATION_BUF_SIZE];
+    while (fgets(locationBuf, LOCATION_BUF_SIZE, fp)) {
+        
+        if (i == nLoc) {
+            fprintf(stderr, "Too many locations (lines) in file.\n");
+            exit(EXIT_FAILURE);
+        }
+        loc.index = i;      
+        // Parse location
+        unsigned int newline = strcspn(locationBuf, "\n");
+        if (newline >= strlen(locationBuf)) {
+            fprintf(stderr, "Line %u is too long for buffer of size: %d.\n",
+                    i+1, LOCATION_BUF_SIZE);
+            exit(EXIT_FAILURE);
+        }
+        locationBuf[newline] = '\0';
+        
+        // Parse location name
+        const char *val = strtok(locationBuf, ",");  assert(val);
+        // Store location name
+        if (strlen(val) >= MAX_LOCATION_LEN) {
+            fprintf(stderr, "Location name '%s' longer than max.: %d.\n",
+                    val, MAX_LOCATION_LEN);
+            exit(EXIT_FAILURE);
+        }
+        strncpy(loc.name, val, MAX_LOCATION_LEN);
+       
+        // Parse position
+        val = strtok(NULL, ","); assert(val);
+        loc.pos[0] = atof(val);
+        val = strtok(NULL, ","); assert(val);
+        loc.pos[1] = atof(val);
+        
+        // Store location
         locations[i] = loc;
         locations_sorted[i] = loc;
+        
         ++i;
+    }
+    
+    if (i != nLoc) {
+        fprintf(stderr, "Too few locations (lines) in file.\n");
+        exit(EXIT_FAILURE);
     }
 }
 

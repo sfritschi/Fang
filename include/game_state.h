@@ -67,7 +67,7 @@ static const char *STRATEGY_NAMES[] = {
 // Encodes all static information about game board
 typedef struct {
     // Graphs (adjacency lists)
-    Graph graph_player, graph_boeg;
+    Graph graph;
     // Locations on board
     Location_t *locations;
     Location_t *locations_sorted;
@@ -199,46 +199,44 @@ unsigned int follow_path(const int *parents, int source, int target,
     return final_pos;   
 }
 
-void BoardInfo_init(BoardInfo_t *binfo) {
+void BoardInfo_init(BoardInfo_t *binfo) 
+{
+    assert(binfo);
     // Initialize graphs (adjacency lists)
-    FILE *fp_player = fopen("board/graph_player.txt", "r");
-    FILE *fp_boeg = fopen("board/graph_full.txt", "r");
-    if (fp_player == NULL || fp_boeg == NULL) {
-        fprintf(stderr, "Could not open board file(s)\n");
+    FILE *fp = NULL;
+    fp = fopen("board/graph.txt", "r");
+    
+    if (fp == NULL) {
+        fprintf(stderr, "Could not open board graph\n");
         exit(EXIT_FAILURE);
     }
     // Init graphs
-    Graph_init_file(&binfo->graph_player, fp_player);
-    fclose(fp_player);
-    Graph_init_file(&binfo->graph_boeg, fp_boeg);
-    fclose(fp_boeg);
+    Graph_init_file(&binfo->graph, fp);
+    fclose(fp);
     
-    // Make sure graphs share same number of vertices
-    assert(binfo->graph_player.nVert == binfo->graph_boeg.nVert);
     // Number of total vertices
-    const unsigned int nVert = binfo->graph_player.nVert;
+    const unsigned int nVert = binfo->graph.nVert;
     // Set number of positions
     binfo->nPositions = nVert;
     
     // Read locations:
-    binfo->locations = (Location_t *) malloc(nVert * sizeof(Location_t));
+    binfo->locations = (Location_t *) malloc(nVert*sizeof(Location_t));
     assert(binfo->locations != NULL);
-    binfo->locations_sorted = (Location_t *) malloc(nVert * sizeof(Location_t));
+    binfo->locations_sorted = (Location_t *) malloc(nVert*sizeof(Location_t));
     assert(binfo->locations_sorted != NULL);
     
-    FILE *fp_loc = fopen("board/locations.txt", "r");
-    if (fp_loc == NULL) {
+    fp = fopen("board/locations.txt", "r");
+    if (fp == NULL) {
         free(binfo->locations);
         free(binfo->locations_sorted);
-        Graph_free(&binfo->graph_player);
-        Graph_free(&binfo->graph_boeg);
+        Graph_free(&binfo->graph);
         fprintf(stderr, "Could not open locations file\n");
         exit(EXIT_FAILURE);
     }
     // Read locations from file into locations array
-    read_locations(fp_loc, binfo->locations, binfo->locations_sorted);
+    read_locations(fp, binfo->locations, binfo->locations_sorted, binfo->nPositions);
     // Close locations file
-    fclose(fp_loc);
+    fclose(fp);
     // Sort locations array in ascending order
     qsort((void *)&binfo->locations_sorted[0], nVert,
            sizeof(Location_t), &location_cmp);
@@ -255,8 +253,8 @@ void BoardInfo_init(BoardInfo_t *binfo) {
     assert(binfo->par_boeg != NULL);
     
     // Compute all pairs shortest paths (APSP) for both boards
-    Graph_BFS_APSP(&binfo->graph_player, binfo->dist_player, binfo->par_player);
-    Graph_BFS_APSP(&binfo->graph_boeg, binfo->dist_boeg, binfo->par_boeg);
+    Graph_BFS_APSP(&binfo->graph, false, binfo->dist_player, binfo->par_player);
+    Graph_BFS_APSP(&binfo->graph, true, binfo->dist_boeg, binfo->par_boeg);
 }
 
 // Initialize game state based on number of players
@@ -408,8 +406,7 @@ void BoardInfo_free(BoardInfo_t *binfo) {
     free(binfo->par_player);
     free(binfo->par_boeg);
     // Clean up graphs
-    Graph_free(&binfo->graph_player);
-    Graph_free(&binfo->graph_boeg);
+    Graph_free(&binfo->graph);
 }
 
 void GameState_free(GameState_t *gstate) {
@@ -506,11 +503,11 @@ enum STATUS GameState_move_greedy(const BoardInfo_t *binfo,
             // Obtain HashMap of all reachable positions from current pos
             // in exactly 'dice_roll' steps
             HashMap reachablePos;
-            reachablePos = Graph_reachable_pos(
-                                &binfo->graph_boeg,
-                                gstate->boeg_pos, dice_roll,
-                                gstate->visited_buf, 
-                                gstate->distances_buf);
+            reachablePos = Graph_reachable_pos(&binfo->graph,
+                                               true,
+                                               gstate->boeg_pos, dice_roll,
+                                               gstate->visited_buf, 
+                                               gstate->distances_buf);
             // Iterate over all reachable positions
             size_t current;
             const size_t nReachable = HashMap_size(&reachablePos);
@@ -662,11 +659,11 @@ enum STATUS GameState_move_avoidant(const BoardInfo_t *binfo,
         // Obtain HashMap of all reachable positions from current pos
         // in exactly 'dice_roll' steps
         HashMap reachablePos;
-        reachablePos = Graph_reachable_pos(
-                            &binfo->graph_boeg,
-                            gstate->boeg_pos, dice_roll,
-                            gstate->visited_buf, 
-                            gstate->distances_buf);
+        reachablePos = Graph_reachable_pos(&binfo->graph,
+                                           true,
+                                           gstate->boeg_pos, dice_roll,
+                                           gstate->visited_buf, 
+                                           gstate->distances_buf);
         // Iterate over all reachable positions and evaluate objective
         size_t current;
         const size_t nReachable = HashMap_size(&reachablePos);
@@ -798,11 +795,11 @@ enum STATUS GameState_move_command(const BoardInfo_t *binfo,
         offset_targets = player_id * N_TARGETS_PLAYER;
         // Verify that there are any valid moves
         bool no_valid_moves = true;
-        reachablePos = Graph_reachable_pos(
-                            &binfo->graph_boeg,
-                            gstate->boeg_pos, dice_roll,
-                            gstate->visited_buf, 
-                            gstate->distances_buf);
+        reachablePos = Graph_reachable_pos(&binfo->graph,
+                                           true,
+                                           gstate->boeg_pos, dice_roll,
+                                           gstate->visited_buf, 
+                                           gstate->distances_buf);
         // Compute number of reachable Positions
         nReachable = HashMap_size(&reachablePos);
         for (current = 0; current < nReachable; ++current) {
@@ -910,11 +907,12 @@ enum STATUS GameState_move_command(const BoardInfo_t *binfo,
         
     } else {
         
-        reachablePos = Graph_reachable_pos(
-                            &binfo->graph_player,
-                            gstate->player_pos[player_id], dice_roll,
-                            gstate->visited_buf, 
-                            gstate->distances_buf);
+        reachablePos = Graph_reachable_pos(&binfo->graph,
+                                           false,
+                                           gstate->player_pos[player_id], 
+                                           dice_roll,
+                                           gstate->visited_buf, 
+                                           gstate->distances_buf);
         // Player position
         player_pos = gstate->player_pos[player_id];
         // Repeat until user enters valid location

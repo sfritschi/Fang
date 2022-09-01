@@ -21,7 +21,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 
-#include <omp.h>
+//#include <omp.h>
 
 #include "linked_list.h"
 #include "hashmap.h"
@@ -31,27 +31,50 @@ enum GRAPH_TYPE {
     GRAPH_UNDIRECTED
 };
 
+struct Edge {
+    unsigned int index;
+    bool isBoegOnly;
+    struct Edge *next;    
+};
+
+typedef struct Edge * EdgeList;
+
 typedef struct {
-    LinkedList *adjList;
+    EdgeList *adjList;
     unsigned int nVert;
     unsigned int nEdge;
     enum GRAPH_TYPE type; 
 } Graph;
 
 void Graph_init_file(Graph *, FILE *);
-void Graph_BFS_SP(const Graph *, unsigned int, int *, int *);
-void Graph_BFS_APSP(const Graph *, int *, int *);
-void Graph_DFS_reachable(const Graph *, unsigned int , unsigned int, int,
+void Graph_insert_edge(Graph *, unsigned int, unsigned int, bool);
+void Graph_BFS_SP(const Graph *, bool, unsigned int, int *, int *);
+void Graph_BFS_APSP(const Graph *, bool, int *, int *);
+void Graph_DFS_reachable(const Graph *, bool, unsigned int , unsigned int, int,
                                     bool *, int *, bool *);
-bool Graph_is_reachable(const Graph *, unsigned int, unsigned int, int,
+bool Graph_is_reachable(const Graph *, bool, unsigned int, unsigned int, int,
                                   bool *, int *);
-void Graph_DFS_reachable_pos(const Graph *, unsigned int, int, 
+void Graph_DFS_reachable_pos(const Graph *, bool, unsigned int, int, 
                                 bool *, int *, HashMap *);
-HashMap Graph_reachable_pos(const Graph *, unsigned int, int, bool *, int *);
+HashMap Graph_reachable_pos(const Graph *, bool, unsigned int, int, bool *, int *);
 void Graph_free(Graph *);
 
-void Graph_init_file(Graph *graph, FILE *fp) {
-    assert(fp != NULL);
+void Graph_insert_edge(Graph *g, unsigned int node, 
+                       unsigned int index, bool isBoegOnly)
+{
+    EdgeList el = NULL;
+    // Initialize edge from data
+    el = (EdgeList) malloc(sizeof(struct Edge)); assert(el);
+    el->index = index;
+    el->isBoegOnly = isBoegOnly;
+    el->next = g->adjList[node];
+    // Update head of linked list
+    g->adjList[node] = el;
+}
+
+void Graph_init_file(Graph *graph, FILE *fp) 
+{
+    assert(graph && fp);
     
     enum GRAPH_TYPE type;
     char graph_type;
@@ -70,42 +93,42 @@ void Graph_init_file(Graph *graph, FILE *fp) {
     unsigned int nVertices;
     assert(fscanf(fp, "%u", &nVertices) != EOF);
     
-    graph->adjList = (LinkedList *) malloc(nVertices * sizeof(LinkedList));
-    assert(graph->adjList != NULL);
+    graph->adjList = (EdgeList *) calloc(nVertices, sizeof(EdgeList));
+    assert(graph->adjList);
     
-    // Initialize individual linked lists
-    for (unsigned int i = 0; i < nVertices; ++i) {
-        LL_init(&graph->adjList[i]);
-    }
     graph->nVert = nVertices;
     graph->nEdge = 0;
     graph->type = type;
     
     unsigned int from_node;
     unsigned int to_node;
+    unsigned int boeg;
     // Initialize graph by parsing file
-    while ((fscanf(fp, "%u %u", &from_node, &to_node)) != EOF) {
+    while ((fscanf(fp, "%u %u %u", &from_node, &to_node, &boeg)) != EOF) {
         if (from_node >= nVertices || to_node >= nVertices) {
             fprintf(stderr, "Invalid edge at line: %u\n", graph->nEdge + 1);
             Graph_free(graph);
             fclose(fp);
             exit(EXIT_FAILURE);
         }
+        bool isBoegOnly = (bool)boeg;
+        // Insert directed edge
+        Graph_insert_edge(graph, from_node, to_node, isBoegOnly);
         
-        if (type == GRAPH_DIRECTED) {
-            // Insert 'to node' in adjacency list of 'from node'
-            LL_insert(&graph->adjList[from_node], to_node);
-        } else { // Symmetric (undirected)
-            LL_insert(&graph->adjList[from_node], to_node);
-            LL_insert(&graph->adjList[to_node], from_node);
+        if (type == GRAPH_UNDIRECTED) {
+            // Also insert edge in opposite direction
+            Graph_insert_edge(graph, to_node, from_node, isBoegOnly);
         }
         ++graph->nEdge;
     }
 }
 
-void Graph_BFS_SP(const Graph *graph, unsigned int source, int *distances, int *parents) {
-    assert(source < graph->nVert);
-
+void Graph_BFS_SP(const Graph *graph, bool isBoeg,
+                  unsigned int source, int *distances, int *parents) 
+{
+    assert(graph && source < graph->nVert);
+    assert(distances && parents);
+    
     bool *visited = (bool *) calloc(graph->nVert, sizeof(bool));
     assert(visited != NULL);
     
@@ -124,13 +147,16 @@ void Graph_BFS_SP(const Graph *graph, unsigned int source, int *distances, int *
     
     while (LL_size(&searchList) != 0) {
         unsigned int current = LL_pop(&searchList);
-        assert(current != LL_INVALID_KEY);
         
         // Get iterator for adjacency list
-        LL_iterator_t iter = LL_iterator(&graph->adjList[current]);
+        EdgeList iter = graph->adjList[current];
         
-        while (iter != NULL) {
-            unsigned int neighbor = iter->key;
+        while (iter) {
+            // Skip edges only accessible to Boeg from player perspective
+            if (!isBoeg && iter->isBoegOnly)
+                goto next_iter;
+            
+            unsigned int neighbor = iter->index;
             if (!visited[neighbor]) {
                 // Visited current neighbor vertex
                 visited[neighbor] = true;
@@ -141,6 +167,7 @@ void Graph_BFS_SP(const Graph *graph, unsigned int source, int *distances, int *
                 // Add to search list
                 LL_insert(&searchList, neighbor);
             }
+next_iter:
             // Move on to next neighbor
             iter = iter->next;
         }
@@ -152,18 +179,21 @@ void Graph_BFS_SP(const Graph *graph, unsigned int source, int *distances, int *
     LL_free(&searchList);    
 }
 
-void Graph_BFS_APSP(const Graph *graph, int *distances, int *parents) {
+void Graph_BFS_APSP(const Graph *graph, bool isBoeg, int *distances, int *parents)
+{
+    assert(graph && distances && parents);
     // Run BFS for every vertex as source in parallel
-    #pragma omp parallel for num_threads(4)
+    //#pragma omp parallel for num_threads(4)
     for (unsigned int source = 0; source < graph->nVert; ++source) {
         unsigned int offset = source * graph->nVert;
-        Graph_BFS_SP(graph, source, &distances[offset], &parents[offset]);
+        Graph_BFS_SP(graph, isBoeg, source, &distances[offset], &parents[offset]);
     }
 }
 
-void Graph_DFS_reachable_pos(const Graph *graph, unsigned int u,
+void Graph_DFS_reachable_pos(const Graph *graph, bool isBoeg, unsigned int u,
                  int distance, bool *visited_buf, int *distances_buf, 
-                     HashMap *reachableVert) {
+                     HashMap *reachableVert)
+{    
     // Visit current vertex
     visited_buf[u] = true;
     
@@ -176,23 +206,27 @@ void Graph_DFS_reachable_pos(const Graph *graph, unsigned int u,
     }
     
     // Get iterator for adjacency list
-    LL_iterator_t iter = LL_iterator(&graph->adjList[u]);
+    EdgeList iter = graph->adjList[u];
     
-    while (iter != NULL) {
-        unsigned int neighbor = iter->key;
+    while (iter) {
+        // Skip edges only accessible to Boeg from player perspective
+        if (!isBoeg && iter->isBoegOnly)
+            goto next_iter;
+            
+        unsigned int neighbor = iter->index;
         // Check if cycle is reached; move on to next neighbor
-        if (visited_buf[neighbor]) {
-            iter = iter->next;
-            continue;
-        }
+        if (visited_buf[neighbor])
+            goto next_iter;
+            
         // Update distance
         distances_buf[neighbor] = distances_buf[u] + 1;
         // Check if already past distance limit
         if (distances_buf[neighbor] <= distance) {
             // Recursion
-            Graph_DFS_reachable_pos(graph, neighbor, distance, visited_buf, 
+            Graph_DFS_reachable_pos(graph, isBoeg, neighbor, distance, visited_buf, 
                         distances_buf, reachableVert);
         }
+next_iter:
         // Go to next neighbor in adjacency list
         iter = iter->next;
     }
@@ -200,11 +234,12 @@ void Graph_DFS_reachable_pos(const Graph *graph, unsigned int u,
     visited_buf[u] = false;
 }
 
-HashMap Graph_reachable_pos(const Graph *graph, unsigned int source,
-                                     int distance, bool *visited_buf,
-                                       int *distances_buf) {
+HashMap Graph_reachable_pos(const Graph *graph, bool isBoeg,
+                            unsigned int source, int distance,
+                            bool *visited_buf, int *distances_buf) 
+{
     assert(source < graph->nVert);
-    assert(visited_buf != NULL && distances_buf != NULL);
+    assert(visited_buf && distances_buf);
     assert(distance >= 0);
     
     // (Re-)initialize workspace
@@ -220,16 +255,17 @@ HashMap Graph_reachable_pos(const Graph *graph, unsigned int source,
     HashMap reachableVert;
     HashMap_init(&reachableVert);
     
-    Graph_DFS_reachable_pos(graph, source, distance, visited_buf, 
+    Graph_DFS_reachable_pos(graph, isBoeg, source, distance, visited_buf, 
                                 distances_buf, &reachableVert);
     
     return reachableVert;
 }
 
-void Graph_DFS_reachable(const Graph *graph, unsigned int u,
+void Graph_DFS_reachable(const Graph *graph, bool isBoeg, unsigned int u,
                  unsigned int v, int distance,
                    bool *visited_buf, int *distances_buf, 
-                     bool *is_reachable) {
+                     bool *is_reachable) 
+{
     if (*is_reachable) {
         return;  // Simple path already found; terminate
     }
@@ -245,23 +281,27 @@ void Graph_DFS_reachable(const Graph *graph, unsigned int u,
     }
     
     // Get iterator for adjacency list
-    LL_iterator_t iter = LL_iterator(&graph->adjList[u]);
+    EdgeList iter = graph->adjList[u];
     
     while (iter != NULL) {
-        unsigned int neighbor = iter->key;
+        // Skip edges only accessible to Boeg from player perspective
+        if (!isBoeg && iter->isBoegOnly)
+            goto next_iter;
+            
+        unsigned int neighbor = iter->index;
         // Check if cycle is reached; move on to next neighbor
-        if (visited_buf[neighbor]) {
-            iter = iter->next;
-            continue;
-        }
+        if (visited_buf[neighbor])
+            goto next_iter;
+            
         // Update distance
         distances_buf[neighbor] = distances_buf[u] + 1;
         // Check if already past distance limit
         if (neighbor == v || distances_buf[neighbor] != distance) {
             // Recursion
-            Graph_DFS_reachable(graph, neighbor, v, distance, visited_buf, 
+            Graph_DFS_reachable(graph, isBoeg, neighbor, v, distance, visited_buf, 
                         distances_buf, is_reachable);
         }
+next_iter:
         // Go to next neighbor in adjacency list
         iter = iter->next;
     }
@@ -271,11 +311,12 @@ void Graph_DFS_reachable(const Graph *graph, unsigned int u,
 
 // Determine if there exists a simple path from source to distance of
 // length exactly distance
-bool Graph_is_reachable(const Graph *graph, unsigned int source,
-                                unsigned int target, int distance,
-                                  bool *visited_buf, int *distances_buf) {
+bool Graph_is_reachable(const Graph *graph, bool isBoeg, 
+                        unsigned int source, unsigned int target, int distance,
+                        bool *visited_buf, int *distances_buf)
+{
     assert(source < graph->nVert && target < graph->nVert);
-    assert(visited_buf != NULL && distances_buf != NULL);
+    assert(visited_buf && distances_buf);
     assert(distance >= 0);
     
     // (Re-)initialize workspace
@@ -288,16 +329,22 @@ bool Graph_is_reachable(const Graph *graph, unsigned int source,
     distances_buf[source] = 0;
     
     bool is_reachable = false;
-    Graph_DFS_reachable(graph, source, target, distance, visited_buf,
+    Graph_DFS_reachable(graph, isBoeg, source, target, distance, visited_buf,
                 distances_buf, &is_reachable);
     
     return is_reachable;
 }
 
-void Graph_free(Graph *graph) {
+void Graph_free(Graph *graph)
+{
     // Free all linked lists
     for (unsigned int i = 0; i < graph->nVert; ++i) {
-        LL_free(&graph->adjList[i]);
+        EdgeList iter = graph->adjList[i];
+        while (iter) {
+            EdgeList temp = iter;
+            iter = iter->next;
+            free(temp);
+        }
     }
     // Free adjacency list
     free(graph->adjList);

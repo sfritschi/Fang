@@ -11,21 +11,19 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#define LL_INVALID_KEY (0xFFFFFFFF)
-
-typedef unsigned int key_t;
-typedef struct node_t * LL_iterator_t;
+typedef unsigned int LL_key_t;
+typedef struct LL_node_t * LL_iterator_t;
 
 // Node within linked list
-struct node_t {
-    struct node_t *next;
-    key_t key;
+struct LL_node_t {
+    struct LL_node_t *next;
+    LL_key_t key;
 };
 
 // Linked list data type
 typedef struct {
-    struct node_t *head;  // add elements at head
-    struct node_t *tail;  // remove elements from tail
+    struct LL_node_t *head;  // add elements at head
+    struct LL_node_t *tail;  // remove elements from tail
     size_t size;
 } LinkedList;
 
@@ -46,8 +44,9 @@ LL_iterator_t LL_iterator(const LinkedList *ll) {
 }
 
 // Insert key into linked list (into head)
-void LL_insert(LinkedList *ll, key_t key) {
-    struct node_t *new_node = (struct node_t *) malloc(sizeof(struct node_t));
+void LL_insert(LinkedList *ll, LL_key_t key) {
+    struct LL_node_t *new_node = 
+            (struct LL_node_t *) malloc(sizeof(struct LL_node_t));
     assert(new_node != NULL);
     new_node->key = key;
     new_node->next = NULL;
@@ -64,12 +63,11 @@ void LL_insert(LinkedList *ll, key_t key) {
 }
 
 // Remove first key in linked list (from tail)
-key_t LL_pop(LinkedList *ll) {
-    if (ll->tail == NULL)
-        return LL_INVALID_KEY;
+LL_key_t LL_pop(LinkedList *ll) {
+    assert(ll->tail);
     
-    key_t key = ll->tail->key;
-    struct node_t *temp = ll->tail;
+    LL_key_t key = ll->tail->key;
+    struct LL_node_t *temp = ll->tail;
     ll->tail = ll->tail->next;
     free(temp);
     if (ll->tail == NULL) {
@@ -84,18 +82,18 @@ key_t LL_pop(LinkedList *ll) {
 
 // Print contents of linked list (assumes unsigned int as format)
 void LL_print(const LinkedList *ll) {
-    struct node_t *tail = ll->tail;
-    while (tail != NULL) {
-        printf("%u ", tail->key);
-        tail = tail->next;
+    LL_iterator_t iter = ll->tail;
+    while (iter) {
+        printf("%u ", iter->key);
+        iter = iter->next;
     }
     printf("\n");
 }
 
 // Free all data associated with linked list (start at tail)
 void LL_free(LinkedList *ll) {
-    struct node_t *temp;
-    while (ll->tail != NULL) {
+    LL_iterator_t temp;
+    while (ll->tail) {
         temp = ll->tail;
         ll->tail = ll->tail->next;
         free(temp);
