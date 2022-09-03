@@ -75,4 +75,23 @@ SearchMapEntry *SM_get(SearchMap *sm, const uint32_t i)
     return &sm->_map[sm->_indices[i]];
 }
 
+const SearchMapEntry *SM_find(const SearchMap *sm, const uint32_t key)
+{
+    uint32_t index = _hash(key) % SM_TABLE_SIZE;
+    
+    uint32_t tried = 0;
+    while (tried < SM_TABLE_SIZE &&
+           sm->_map[index].key != key &&
+           sm->_map[index].key != SM_DEFAULT_KEY) {
+        // Linear probing
+        index = (index + 1) % SM_TABLE_SIZE;
+        ++tried;
+    }
+    
+    if (sm->_map[index].key == key)  {  // Entry found
+        return &sm->_map[index];
+    }
+    
+    return NULL;  // not found
+}
 #endif /* SEARCH_MAP_H */

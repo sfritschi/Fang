@@ -4,46 +4,55 @@
  */
 
 #include <stdio.h>
-#include <time.h>  // time()
+#include <unistd.h>  // sleep
 #include <stdlib.h>
+#include <stdbool.h>
 
 #include "game_state.h"
 #include "graphics.h"
 #include "splitmix64.h"
 
 #define TEXT_BUF_SIZE 32
+#define BASE_AVOIDANCE 40.0
 
-static unsigned int nNodes = 0;
-static unsigned int nEdges = 0;
+// Globals
+static GLuint nNodes = 0;
+static GLuint nEdges = 0;
 static BoardInfo_t binfo;
 static GameState_t gstate;
-static unsigned int _userId = MAX_PLAYERS;
+static GLuint _userId = MAX_PLAYERS;
+static GLuint _playerTurnId = MAX_PLAYERS;
+static GLuint _playerTurnIter = 0;
+static GLint _userDiceRoll = 0;
 static vec3 targetBgCol[N_TARGETS_PLAYER];
 static const char *locationText = "";
-
-static GLboolean _isAlternating = GL_FALSE;
+static int _globalValue = 0;
+static enum MOVE_STRATEGY *player_strategies = NULL;
+static GLboolean _isInitialized = GL_FALSE;
+static GLboolean _isGameover = GL_TRUE;
 
 void alternateColors(int value)
 {
-    // ISSUE: Possible data-race on global variables?
-    if (_isAlternating) {
+    if (_globalValue == value) {
         vec3 col;
         
         for (GLuint i = 0; i < _sm.size; ++i) {
             SearchMapEntry *sme = SM_get(&_sm, i);
 
-            // Alternate color of individual players
-            uint8_t playerId = BS_nextPos(&sme->bs);
-            assert(playerId != BS_INVALID_ELEM);
-            glm_vec3_copy(COLORS[playerId], col);
-            
-            setColor(col, sme->key);
-            
-            const GLuint offsetTargets = _userId*N_TARGETS_PLAYER;
-            for (GLuint j = 0; j < N_TARGETS_PLAYER; ++j) {
-                if (gstate.player_targets[offsetTargets + j] == sme->key) {
-                    glm_vec3_copy(col, targetBgCol[j]);
-                    break;
+            if (sme->bs.size > 1) {
+                // Alternate color of individual players
+                uint8_t playerId = BS_nextPos(&sme->bs);
+                assert(playerId != BS_INVALID_ELEM);
+                glm_vec3_copy(COLORS[playerId], col);
+                
+                setColor(col, sme->key);
+                
+                const GLuint offsetTargets = _userId*N_TARGETS_PLAYER;
+                for (GLuint j = 0; j < N_TARGETS_PLAYER; ++j) {
+                    if (gstate.player_targets[offsetTargets + j] == sme->key) {
+                        glm_vec3_copy(col, targetBgCol[j]);
+                        break;
+                    }
                 }
             }
         }
@@ -53,9 +62,68 @@ void alternateColors(int value)
     }
 }
 
+void updateNodeColors()
+{
+    const GLuint offsetTargets = _userId*N_TARGETS_PLAYER;
+    // Update player positions
+    populateSearchMap(&gstate);
+    // Reset colors
+    initNodeCols(nNodes);
+    // Reset background colors of target locations
+    for (GLuint i = 0; i < N_TARGETS_PLAYER; ++i) {
+        glm_vec3_copy(COLORS[COL_TARGET], targetBgCol[i]);
+    }
+    
+    GLboolean isOverlap = GL_FALSE;
+    for (uint8_t i = 0; i < _sm.size; ++i) {
+        SearchMapEntry *sme = SM_get(&_sm, i); assert(sme);
+        assert(sme->bs.size >= 1);
+        
+        if (sme->bs.size == 1) {
+            uint8_t playerId = BS_nextPos(&sme->bs);
+            setColor(COLORS[playerId], sme->key);
+            for (GLuint j = 0; j < N_TARGETS_PLAYER; ++j) {
+                if (gstate.player_targets[offsetTargets + j] == sme->key) {
+                    if (playerId != gstate.boeg_id)
+                        glm_vec3_copy(COLORS[playerId], targetBgCol[j]);
+                    else
+                        glm_vec3_copy(COLORS[COL_WHITE], targetBgCol[j]);
+                    break;
+                }
+            }
+        } else {
+            isOverlap = GL_TRUE;
+        }
+    }
+    // Alternate colors of players occupying same node and cancel prior
+    // callback by modifying global 'value' variable
+    if (isOverlap) {
+        _globalValue += 1;
+        alternateColors(_globalValue);
+    }
+    // Redisplay scene
+    glutPostRedisplay();
+}
+
+void updateTurnId()
+{
+    // Update iterator periodically and set player turn id accordingly
+    do {
+        _playerTurnIter = (_playerTurnIter + 1) % gstate.nPlayers;
+        _playerTurnId = gstate.player_order[_playerTurnIter];
+    } while (!is_active_player(&gstate, _playerTurnId));
+}
+
 void draw()
 {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    
+    // If game is over, write text to screen
+    if (_isGameover) {
+        fontRenderTextCentered("Game over! Press R to replay",
+                               0.5f*ORIGIN_WIDTH, 0.5f*ORIGIN_HEIGHT,
+                               1.0f, COLORS[COL_WHITE], COLORS[COL_TEXT]);
+    }
     
     char buf[TEXT_BUF_SIZE];
     const GLfloat targetScale = 0.5f;
@@ -81,26 +149,46 @@ void draw()
     
     // Draw board
     renderBoard(nNodes, nEdges);
-    // Write name of location in bottom corner
-    fontRenderText(locationText, 20.0f, 20.0f, 0.8f, COLORS[COL_TEXT], COLORS[COL_BG]);
     
+    // Render text
+    // Write name of location in bottom corner
+    fontRenderText(locationText, 20.0f, 20.0f, 0.8f, 
+                   COLORS[COL_TEXT], COLORS[COL_BG]);
+    TextDims td;
+    GLfloat dispX = 20.0f;
     // Write 'Player X.' in top left corner
-    snprintf(buf, TEXT_BUF_SIZE, "Player %u.", _userId+1);
     const GLfloat playerScale = 0.8f;
-    TextDims td = fontGetTextDims(buf, playerScale);
-    fontRenderText(buf, 20.0f, ORIGIN_HEIGHT - td.height, 
+    snprintf(buf, TEXT_BUF_SIZE, "Player %u", _userId+1);
+    
+    td = fontGetTextDims(buf, playerScale);
+    fontRenderText(buf, dispX, ORIGIN_HEIGHT - td.height, 
                    playerScale, COLORS[_userId], COLORS[COL_BG]);
     
-    /*
-    playerTxt = "Dice roll:";
-    TextDims td2 = fontGetTextDims(playerTxt, playerScale);
-    fontRenderText(playerTxt, 20.0f, ORIGIN_HEIGHT - td.height - 1.5f*td2.height,
-                   playerScale, COLORS[COL_TEXT], COLORS[COL_BG]);
+    // Write dice roll of user beneath player text
+    if (_userDiceRoll != 0) {
+        snprintf(buf, TEXT_BUF_SIZE, "Dice roll: %u", _userDiceRoll);
+        fontRenderText(buf, dispX, ORIGIN_HEIGHT - 2.5f*td.height,
+                       playerScale, COLORS[_userId], COLORS[COL_BG]);
+    }
+    // Write #targets left for each player in the lower left
+    GLfloat dispY = 0.3f*ORIGIN_HEIGHT;
+    const GLfloat scaleTargetsLeft = 0.5f;
+    const char *txtTargetsLeft = "Targets left:";
     
-    fontRenderText(" 3", 20.0f + td2.width, ORIGIN_HEIGHT - td.height - 1.5f*td2.height,
-                   playerScale, COLORS[COL_RED], COLORS[COL_BG]);
-    glUseProgram(_boardShaderProgram);
-    */
+    td = fontGetTextDims(txtTargetsLeft, scaleTargetsLeft);
+    fontRenderText(txtTargetsLeft, dispX, dispY, scaleTargetsLeft, 
+                   COLORS[COL_TEXT], COLORS[COL_BG]);
+    dispY -= 1.5f*td.height;
+    
+    for (GLuint i = 0; i < gstate.nPlayers; ++i) {
+        snprintf(buf, TEXT_BUF_SIZE, "Player %u: %u", i+1, 
+                 gstate.player_targets_left[i]);
+                 
+        td = fontGetTextDims(buf, scaleTargetsLeft);
+        fontRenderText(buf, dispX, dispY, scaleTargetsLeft,
+                       COLORS[i], COLORS[COL_BG]);
+        dispY -= 1.5f*td.height;
+    }
     // Swap buffers and show the buffer's content on the screen
     glutSwapBuffers();
 }
@@ -112,13 +200,31 @@ void keyPressed(unsigned char key, int x, int y)
     (void)y;
     
     if (key == 'q' || key == 'Q') {
+        // Quit
         exit(EXIT_SUCCESS);
+    } else if (_isGameover && (key == 'r' || key == 'R')) {
+        // Require playerTurnId to be re-initialized
+        _isInitialized = GL_FALSE;
+        // Reset game
+        _isGameover = GL_FALSE;
+        // Reset game state
+        GameState_reset(&gstate, nNodes);
+        // Re-initialize location of player
+        const GLuint userPos = gstate.player_pos[_userId]; 
+        locationText = binfo.locations[userPos].name;
+        // Re-set colors of nodes
+        updateNodeColors();
     }
 }
 
 void mouseClick(int button, int state, int x, int y)
 {
-    if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
+    const GLboolean leftClick = button == GLUT_LEFT_BUTTON && 
+                                state == GLUT_DOWN;
+    const GLboolean rightClick = button == GLUT_RIGHT_BUTTON &&
+                                 state == GLUT_DOWN;
+    
+    if (_playerTurnId == _userId && _userDiceRoll && leftClick) {
         // Get current window sizes
         GLfloat width = glutGet(GLUT_WINDOW_WIDTH);
         GLfloat height = glutGet(GLUT_WINDOW_HEIGHT);
@@ -135,23 +241,93 @@ void mouseClick(int button, int state, int x, int y)
             GLfloat dy = yf - binfo.locations[i].pos[1];
             
             if ((dx*dx + dy*dy) < radiusSq) {  // Found circle
-                // Set clicked location name
-                locationText = binfo.locations[i].name;
-                // Change color of circle
-                setColor(COLORS[_userId], i);
-                // DEBUG: Update globalValue (poison pill)
-                _isAlternating = GL_FALSE;
-                // Check if clicked location is a target location
-                const GLuint offsetTargets = _userId*N_TARGETS_PLAYER;
-                for (GLuint j = 0; j < N_TARGETS_PLAYER; ++j) {
-                    if (gstate.player_targets[offsetTargets + j] == i) {
-                        glm_vec3_copy(COLORS[_userId], targetBgCol[j]);
-                        break;
+                // Try to make user move
+                enum STATUS userStatus = INVALID;
+                userStatus = GameState_move_command(&binfo, &gstate,
+                                                        _userId, i, _userDiceRoll);
+                if (userStatus != INVALID) {
+                    // Set clicked location name
+                    locationText = binfo.locations[i].name;
+                    // Update colors of nodes
+                    updateNodeColors();
+                }
+                
+                if (userStatus == CONTINUE) {
+                    updateTurnId();
+                    // Reset user dice roll
+                    _userDiceRoll = 0;
+                } else if (userStatus == AGAIN) {
+                    // Roll dice again
+                    _userDiceRoll = roll_dice();
+                    glutPostRedisplay();
+                } else if (userStatus == GAMEOVER) {
+                    _isGameover = GL_TRUE;
+                    // TODO: Determine placement among all players
+                    printf("You won! <3\n");
+                    _playerTurnId = MAX_PLAYERS;
+                    _userDiceRoll = 0;
+                    glutPostRedisplay();
+                }
+            }
+        }
+    } else if (rightClick) {
+        // Initialization
+        if (!_isInitialized) {
+            // Initialize id of player to move first
+            _playerTurnIter = 0;
+            _playerTurnId = gstate.player_order[_playerTurnIter];
+            _isInitialized = GL_TRUE;
+        } else if (_playerTurnId == MAX_PLAYERS) {
+            return;  // skip
+        }
+        
+        if (_playerTurnId == _userId && _userDiceRoll == 0) {
+            // User's turn
+            // Roll dice
+            _userDiceRoll = roll_dice();
+            glutPostRedisplay();
+        } else if (_playerTurnId != _userId) {
+            // AI's turn
+            if (is_active_player(&gstate, _playerTurnId)) {                
+                GLboolean capturedUser = GL_FALSE;
+                enum STATUS aiStatus = INVALID;
+                capturedUser = _userId == gstate.boeg_id;
+                aiStatus = GameState_move(&binfo, &gstate, _playerTurnId, 
+                                            BASE_AVOIDANCE, 
+                                            player_strategies[_playerTurnId], false);
+                assert(aiStatus != INVALID);
+                capturedUser = capturedUser && _userId != gstate.boeg_id;
+                
+                if (capturedUser) {
+                    // Change player location text to point back to
+                    // original location of user
+                    const GLuint userPos = gstate.player_pos[_userId];
+                    locationText = binfo.locations[userPos].name;
+                }
+                // Update colors of nodes
+                updateNodeColors();
+                
+                if (aiStatus == CONTINUE) {
+                    updateTurnId();
+                } else if (aiStatus == GAMEOVER) {
+                    // Check if user has lost
+                    _isGameover = GL_TRUE;
+                    for (GLuint i = 0; i < gstate.nPlayers; ++i) {
+                        if (i != _userId && gstate.player_targets_left[i] > 0) {
+                            _isGameover = GL_FALSE;
+                            break;
+                        }
+                    }
+                    
+                    if (_isGameover) {
+                        _playerTurnId = MAX_PLAYERS;
+                        glutPostRedisplay();
+                    } else {
+                        updateTurnId();
                     }
                 }
-                // Redisplay scene
-                glutPostRedisplay();
-                return;  // done
+            } else {
+                updateTurnId();
             }
         }
     }
@@ -185,9 +361,9 @@ int main(int argc, char *argv[]) {
     }
     
     // Initialize player strategies
-    enum MOVE_STRATEGY *player_strategies =
+    player_strategies = 
             (enum MOVE_STRATEGY *) malloc(nPlayers*sizeof(enum MOVE_STRATEGY));
-    assert(player_strategies != NULL);
+    assert(player_strategies);
     
     unsigned int i;
     for (i = 0; i < nPlayers; ++i) {
@@ -236,25 +412,25 @@ int main(int argc, char *argv[]) {
     nNodes = binfo.nPositions;
     nEdges = binfo.graph.nEdge;
     
-    // Initialize game state
-    GameState_init(&gstate, nPlayers, nNodes);
-    
     // Initialize board
     initBoardGL(&argc, argv, "fonts/LiberationMono-Regular.ttf", &binfo);
+    
+    // Initialize game state
+    GameState_init(&gstate, nPlayers, nNodes);
     
     // Initialize target background color
     for (GLuint i = 0; i < N_TARGETS_PLAYER; ++i)
         glm_vec3_copy(COLORS[COL_TARGET], targetBgCol[i]);
     
-    populateSearchMap(&gstate);
+    // Initialize location of player
+    const GLuint userPos = gstate.player_pos[_userId]; 
+    locationText = binfo.locations[userPos].name;
+    updateNodeColors();
     
     // Setup function callbacks
     glutDisplayFunc(draw);
     glutKeyboardFunc(keyPressed);
     glutMouseFunc(mouseClick);
-    
-    _isAlternating = GL_TRUE;
-    glutTimerFunc(1, alternateColors, 0);
     
     // Start main loop
     glutMainLoop();

@@ -191,8 +191,8 @@ void Graph_BFS_APSP(const Graph *graph, bool isBoeg, int *distances, int *parent
 }
 
 void Graph_DFS_reachable_pos(const Graph *graph, bool isBoeg, unsigned int u,
-                 int distance, bool *visited_buf, int *distances_buf, 
-                     HashMap *reachableVert)
+                             int distance, bool *visited_buf, int *distances_buf, 
+                             HashMap *reachableVert)
 {    
     // Visit current vertex
     visited_buf[u] = true;
@@ -262,9 +262,9 @@ HashMap Graph_reachable_pos(const Graph *graph, bool isBoeg,
 }
 
 void Graph_DFS_reachable(const Graph *graph, bool isBoeg, unsigned int u,
-                 unsigned int v, int distance,
-                   bool *visited_buf, int *distances_buf, 
-                     bool *is_reachable) 
+                         unsigned int v, int distance,
+                         bool *visited_buf, int *distances_buf, 
+                         bool *is_reachable) 
 {
     if (*is_reachable) {
         return;  // Simple path already found; terminate
@@ -283,7 +283,7 @@ void Graph_DFS_reachable(const Graph *graph, bool isBoeg, unsigned int u,
     // Get iterator for adjacency list
     EdgeList iter = graph->adjList[u];
     
-    while (iter != NULL) {
+    while (iter) {
         // Skip edges only accessible to Boeg from player perspective
         if (!isBoeg && iter->isBoegOnly)
             goto next_iter;
@@ -309,7 +309,7 @@ next_iter:
     visited_buf[u] = false;
 }
 
-// Determine if there exists a simple path from source to distance of
+// Determine if there exists a simple path from source to target of
 // length exactly distance
 bool Graph_is_reachable(const Graph *graph, bool isBoeg, 
                         unsigned int source, unsigned int target, int distance,

@@ -131,14 +131,14 @@ void setColor(const vec3 rgb, GLuint i)
 
 void initNodeCols(GLuint nNodes)
 {
-	// Set color of all circle instances to a random color
+	// Set color of all circle instances to specified color
     for (GLuint i = 0; i < nNodes; ++i) {
         if (i < N_TARGETS) {
             setColor(COLORS[COL_TARGET], i);
         } else {
             setColor(COLORS[COL_TEXT], i);
         }
-    }    
+    }
 }
 
 // Initialize vertex positions (circle) common to all nodes
@@ -211,6 +211,10 @@ void populateSearchMap(const GameState_t *gstate)
     int32_t err;
     // Insert positions of all players
     for (uint8_t i = 0; i < gstate->nPlayers; ++i) {
+        // Ignore already finished players
+        if (!is_active_player(gstate, i))
+            continue;
+        
         err = SM_insert(&_sm, gstate->player_pos[i], i); assert(err == SM_OK);
     }
     // Insert position of boeg (special case)
