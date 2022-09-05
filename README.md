@@ -5,4 +5,5 @@ Test various strategies in board game 'Fang'
 - OpenGL
 - FreeGLUT
 - GLEW
+- CGLM
 - Freetype2
