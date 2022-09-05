@@ -4,7 +4,7 @@
  */
 
 #include <stdio.h>
-#include <unistd.h>  // sleep
+#include <time.h>
 #include <stdlib.h>
 #include <stdbool.h>
 
@@ -29,7 +29,7 @@ static const char *locationText = "";
 static int _globalValue = 0;
 static enum MOVE_STRATEGY *player_strategies = NULL;
 static GLboolean _isInitialized = GL_FALSE;
-static GLboolean _isGameover = GL_TRUE;
+static GLboolean _isGameover = GL_FALSE;
 
 void alternateColors(int value)
 {
@@ -342,8 +342,8 @@ int main(int argc, char *argv[]) {
     }
     
     // Seed (pseudo-) random number generator
-    //set_seed(time(NULL));
-    set_seed(42);
+    set_seed(time(NULL));
+    //set_seed(42);
     
     unsigned int nPlayers = atoi(argv[1]);
     if (!(MIN_PLAYERS <= nPlayers && nPlayers <= MAX_PLAYERS)) {
