@@ -1,6 +1,6 @@
 #include "GL/glew.h"
 #include "GL/gl.h"
-#include "GL/glut.h"
+#include "GL/freeglut.h"
 
 #include <cglm/cglm.h>
 
@@ -230,6 +230,7 @@ void initBoardGL(int *argc, char *argv[], const char *fontPath,
     GLint screenWidth = glutGet(GLUT_SCREEN_WIDTH);
     GLint screenHeight = glutGet(GLUT_SCREEN_HEIGHT);
     // MULTISAMPLE for anti-aliasing
+    glutSetOption(GLUT_MULTISAMPLE, 8);
 	glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_DEPTH | GLUT_MULTISAMPLE);
 	glutInitWindowSize(ORIGIN_WIDTH, ORIGIN_HEIGHT);
     // Place window in center of screen
@@ -245,6 +246,8 @@ void initBoardGL(int *argc, char *argv[], const char *fontPath,
 	}
 	glClearColor(COLORS[COL_BG][0], COLORS[COL_BG][1], COLORS[COL_BG][2], 1.0);
 	glEnable(GL_DEPTH_TEST);
+    glEnable(GL_MULTISAMPLE);
+    glHint(GL_MULTISAMPLE_FILTER_HINT_NV, GL_NICEST);
     // Enable blending
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);

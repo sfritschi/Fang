@@ -43,6 +43,8 @@ void SM_init(SearchMap *sm)
 
 int32_t SM_insert(SearchMap *sm, const uint32_t key, const uint8_t elem)
 {
+    assert(key != SM_DEFAULT_KEY);  // cannot insert invalid key element
+    
     uint32_t index = _hash(key) % SM_TABLE_SIZE;
     
     uint32_t tried = 0;
@@ -77,6 +79,8 @@ SearchMapEntry *SM_get(SearchMap *sm, const uint32_t i)
 
 const SearchMapEntry *SM_find(const SearchMap *sm, const uint32_t key)
 {
+    assert(key != SM_DEFAULT_KEY);  // cannot find invalid key element
+    
     uint32_t index = _hash(key) % SM_TABLE_SIZE;
     
     uint32_t tried = 0;
