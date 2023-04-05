@@ -142,6 +142,27 @@ bool opponent_at_target(const GameState_t *gstate, unsigned int target,
     return false;
 }
 
+// Check if given location is active target location of player, in which
+// case it is marked as visited (invalidated)
+bool is_active_target(GameState_t *gstate, unsigned int location,
+                      unsigned int player_id) {
+    unsigned int target, target_index;
+    const unsigned int offset_targets = player_id * N_TARGETS_PLAYER;
+    
+    unsigned int j;
+    for (j = 0; j < N_TARGETS_PLAYER; ++j) {
+        target_index = offset_targets + j;
+        target = gstate->player_targets[target_index];
+        // Check if location is an active target of player
+        if (target != N_TARGETS && location == target) {
+            gstate->player_targets[target_index] = N_TARGETS;
+            return true;
+        }
+    }
+    
+    return false;
+}
+
 // Recursively explore shortest path using parents array
 unsigned int __print_path(const int *parents, const Location_t *locations,
                         int target, int offset, unsigned int dist,
@@ -486,7 +507,7 @@ enum STATUS GameState_move_greedy(const BoardInfo_t *binfo,
         if (min_target != N_TARGETS) {
             // Try to move as far as possible to closest (min) target
             closest_pos = follow_path(binfo->par_boeg, gstate->boeg_pos, min_target,
-                                        binfo->nPositions, dice_roll);
+                binfo->nPositions, dice_roll);
         }
         // EDGE CASE: Check if already occupied by opponent(s)
         if (min_target == N_TARGETS || opponent_at_target(gstate, closest_pos, player_id)) {
@@ -543,8 +564,8 @@ enum STATUS GameState_move_greedy(const BoardInfo_t *binfo,
                 // ISSUE: Prints shortest path from boeg_pos to optimal
                 //        pos instead of actual path taken
                 print_path(binfo->par_boeg, binfo->locations, 
-                            gstate->boeg_pos, closest_pos, binfo->nPositions,
-                            dice_roll, DEFAULT_COLOR);
+                    gstate->boeg_pos, closest_pos, binfo->nPositions,
+                    dice_roll, DEFAULT_COLOR);
             }
             gstate->boeg_pos = closest_pos;
             
@@ -571,6 +592,12 @@ enum STATUS GameState_move_greedy(const BoardInfo_t *binfo,
             gstate->player_pos[player_id] = gstate->boeg_pos;
             // Update Boeg id
             gstate->boeg_id = player_id;
+            // Check if capture position happens to be active target of player
+            if (is_active_target(gstate, gstate->boeg_pos, player_id)) {
+                // Player visited this target
+                if (--gstate->player_targets_left[player_id] == 0)
+                    return GAMEOVER;
+            }
             // Make next move as Boeg
             return AGAIN;
         }
@@ -753,6 +780,12 @@ enum STATUS GameState_move_avoidant(const BoardInfo_t *binfo,
             gstate->player_pos[player_id] = gstate->boeg_pos;
             // Update Boeg id
             gstate->boeg_id = player_id;
+             // Check if capture position happens to be active target of player
+            if (is_active_target(gstate, gstate->boeg_pos, player_id)) {
+                // Player visited this target
+                if (--gstate->player_targets_left[player_id] == 0)
+                    return GAMEOVER;
+            }
             // Make next move as Boeg
             return AGAIN;
         }
@@ -899,6 +932,12 @@ enum STATUS GameState_move_command(const BoardInfo_t *binfo,
             gstate->player_pos[player_id] = gstate->boeg_pos;
             // Update Boeg id
             gstate->boeg_id = player_id;
+             // Check if capture position happens to be active target of player
+            if (is_active_target(gstate, gstate->boeg_pos, player_id)) {
+                // Player visited this target
+                if (--gstate->player_targets_left[player_id] == 0)
+                    return GAMEOVER;
+            }
             // Make next move as Boeg
             return AGAIN;
         }
