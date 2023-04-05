@@ -15,7 +15,7 @@ SRC=$(wildcard $(SRCDIR)/*.c)
 OBJ=$(patsubst $(SRCDIR)/%.c, $(OBJDIR)/%.o, $(SRC))
 
 $(OBJDIR)/%.o: $(SRCDIR)/%.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -c $^ -o $@ -Iinclude/ -I/usr/local/include/freetype2 $(LINK_GL) $(LINK_FT)
+	$(CC) $(CFLAGS) -c $^ -o $@ -Iinclude/ -I/usr/local/include/freetype2
 	
 $(TARGET): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $^ $(LINK_GL) $(LINK_FT)
