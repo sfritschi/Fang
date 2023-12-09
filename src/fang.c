@@ -185,8 +185,13 @@ void draw()
                  gstate.player_targets_left[i]);
                  
         td = fontGetTextDims(buf, scaleTargetsLeft);
-        fontRenderText(buf, dispX, dispY, scaleTargetsLeft,
+        if (i != gstate.boeg_id) {
+            fontRenderText(buf, dispX, dispY, scaleTargetsLeft,
                        COLORS[i], COLORS[COL_BG]);
+        } else {
+            fontRenderText(buf, dispX, dispY, scaleTargetsLeft,
+                       COLORS[COL_WHITE], COLORS[COL_BG]);
+        }
         dispY -= 1.5f*td.height;
     }
     // Swap buffers and show the buffer's content on the screen
